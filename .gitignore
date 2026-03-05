@@ -1,0 +1,15 @@
+# Environment variables
+.env
+
+# Python virtual environment
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Docker volumes (if mounted locally)
+pgdata/
+
+rag_kjri_dubai.sql
