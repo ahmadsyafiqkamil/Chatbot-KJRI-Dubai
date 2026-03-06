@@ -18,6 +18,24 @@ services:
       timeout: 5s
       retries: 5
 
+  toolbox:
+    image: us-central1-docker.pkg.dev/database-toolbox/toolbox/toolbox:0.28.0
+    container_name: kjri_toolbox
+    platform: linux/amd64
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-rag_kjri}
+    ports:
+      - "5001:5000"
+    volumes:
+      - ./toolbox/config:/config
+    command: ["--tools-file", "/config/tools.yaml", "--address", "0.0.0.0"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   pgadmin:
     image: dpage/pgadmin4:latest
     container_name: kjri_pgadmin
@@ -30,6 +48,25 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: kjri_agent
+    restart: unless-stopped
+    ports:
+      - "${AGENT_PORT:-8000}:8000"
+    environment:
+      OLLAMA_API_BASE: http://host.docker.internal:11434
+      TOOLBOX_URL: http://toolbox:5000
+      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+      LLM_MODEL: ${LLM_MODEL:-qwen2.5:0.5b}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - toolbox
 
 volumes:
   postgres_data:

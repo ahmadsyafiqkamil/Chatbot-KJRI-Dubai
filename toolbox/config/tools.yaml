@@ -1,0 +1,60 @@
+# tools.yaml — MCP Toolbox for Databases
+# Konfigurasi tools untuk Chatbot KJRI Dubai
+
+# --- Data Source ---
+kind: sources
+name: kjri-db
+type: postgres
+host: postgres
+port: "5432"
+database: ${POSTGRES_DB}
+user: ${POSTGRES_USER}
+password: ${POSTGRES_PASSWORD}
+
+---
+
+# --- Tool 1: Cari layanan konsuler berdasarkan kata kunci ---
+kind: tools
+name: cari-layanan
+type: postgres-sql
+source: kjri-db
+description: >-
+  Cari layanan konsuler KJRI Dubai berdasarkan nama atau kata kunci.
+  Gunakan tool ini ketika user bertanya tentang jenis layanan yang tersedia,
+  ingin tahu biaya, atau menyebut kata kunci seperti paspor, visa, SKCK,
+  legalisasi, nikah, cerai, surat keterangan, atau layanan lainnya.
+  Tool ini mengembalikan daftar layanan beserta kode dan biayanya.
+statement: |
+  SELECT kode_pelayanan, nama_pelayanan, biaya_aed, biaya_keterangan
+  FROM layanan_konsuler
+  WHERE LOWER(nama_pelayanan) LIKE '%' || LOWER($1) || '%'
+  ORDER BY nama_pelayanan
+  LIMIT 10
+parameters:
+  - name: keyword
+    type: string
+    description: "Kata kunci nama layanan yang dicari (contoh: 'paspor', 'visa', 'SKCK', 'legalisasi', 'nikah')"
+
+---
+
+# --- Tool 2: Ambil detail syarat dan biaya layanan tertentu ---
+kind: tools
+name: get-detail-layanan
+type: postgres-sql
+source: kjri-db
+description: >-
+  Ambil detail lengkap sebuah layanan konsuler KJRI Dubai, termasuk syarat wajib,
+  syarat kondisional, catatan penting, dan biaya.
+  Gunakan tool ini ketika user sudah menyebut nama layanan spesifik atau kode
+  layanan tertentu dan ingin tahu persyaratan lengkapnya.
+  Misalnya: "syarat paspor pekerja formal", "persyaratan PSP-001", dll.
+statement: |
+  SELECT kode_pelayanan, nama_pelayanan, syarat, biaya_aed, biaya_keterangan
+  FROM layanan_konsuler
+  WHERE LOWER(nama_pelayanan) LIKE '%' || LOWER($1) || '%'
+     OR UPPER(kode_pelayanan) = UPPER($1)
+  LIMIT 5
+parameters:
+  - name: kode_atau_nama
+    type: string
+    description: "Kode pelayanan (contoh: 'PSP-001') atau nama/kata kunci layanan (contoh: 'paspor pekerja formal')"
