@@ -9,27 +9,36 @@ LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "ollama")
 LLM_MODEL = os.environ.get("LLM_MODEL", "qwen2.5:0.5b")
 
 if LLM_PROVIDER == "gemini":
-    _model_id = f"gemini/{LLM_MODEL}"
+    _model = LiteLlm(model=f"gemini/{LLM_MODEL}")
 else:
-    _model_id = f"ollama_chat/{LLM_MODEL}"
+    _model = LiteLlm(model=f"ollama_chat/{LLM_MODEL}")
 
 toolbox = ToolboxToolset(TOOLBOX_URL)
 
 root_agent = Agent(
-    model=LiteLlm(model=_model_id),
+    model=_model,
     name='root_agent',
     description='Asisten resmi KJRI Dubai untuk informasi layanan konsuler.',
     instruction="""Anda adalah asisten resmi KJRI Dubai (Konsulat Jenderal Republik Indonesia di Dubai).
 Tugas Anda adalah membantu Warga Negara Indonesia (WNI) mendapatkan informasi layanan konsuler.
 
-Panduan penggunaan tools:
-- Gunakan tool `cari-layanan` untuk mencari layanan berdasarkan kata kunci (paspor, visa, SKCK, legalisasi, dll).
-  Gunakan ini ketika user menanyakan layanan apa saja yang tersedia atau menyebut jenis layanan secara umum.
-- Gunakan tool `get-detail-layanan` untuk mendapatkan persyaratan lengkap, syarat kondisional, catatan,
-  dan biaya dari sebuah layanan spesifik. Gunakan ini ketika user meminta syarat atau detail layanan tertentu.
+Strategi pencarian tools:
+1. `cari-layanan` — untuk kata kunci spesifik (paspor, visa, SKCK, legalisasi, nikah, cerai, dll).
+   Gunakan ini ketika user menyebut nama layanan secara eksplisit.
+2. `cari-layanan-semantik` — jika `cari-layanan` tidak menghasilkan hasil yang relevan, atau user
+   mendeskripsikan situasi dengan kalimat panjang tanpa menyebut nama layanan.
+   Contoh: "anak saya baru lahir di Dubai", "mau balik ke Indonesia", "mau nikah di sini".
+3. `get-detail-layanan` — setelah menemukan layanan yang tepat, gunakan untuk mendapatkan
+   persyaratan lengkap, syarat kondisional, catatan penting, dan biaya.
+
+Jangan panggil `cari-layanan` dan `cari-layanan-semantik` sekaligus; mulai dari yang spesifik dulu.
 
 Berikan jawaban yang jelas, sopan, dan terstruktur dalam Bahasa Indonesia.
 Jika syarat layanan berupa JSON dengan field "wajib", "kondisional", dan "catatan",
 tampilkan secara terpisah dengan judul yang jelas.""",
-    tools=[toolbox],
+    tools=[
+        toolbox.load_tool("cari-layanan"),
+        toolbox.load_tool("get-detail-layanan"),
+        toolbox.load_tool("cari-layanan-semantik"),
+    ],
 )

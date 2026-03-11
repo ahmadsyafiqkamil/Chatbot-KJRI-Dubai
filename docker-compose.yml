@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: kjri_postgres
     restart: unless-stopped
     environment:
@@ -27,6 +27,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-rag_kjri}
+      GOOGLE_API_KEY: ${GEMINI_API_KEY:-}
     ports:
       - "5001:5000"
     volumes:
@@ -49,6 +50,23 @@ services:
       postgres:
         condition: service_healthy
 
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: kjri_chromadb
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    volumes:
+      - chromadb_data:/chroma/chroma
+    environment:
+      CHROMA_SERVER_AUTH_CREDENTIALS_PROVIDER: ""
+      CHROMA_SERVER_AUTH_PROVIDER: ""
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/v2/heartbeat || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   agent:
     build:
       context: .
@@ -63,10 +81,13 @@ services:
       LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
       LLM_MODEL: ${LLM_MODEL:-qwen2.5:0.5b}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      CHROMA_URL: http://chromadb:8000
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
       - toolbox
+      - chromadb
 
 volumes:
   postgres_data:
+  chromadb_data:

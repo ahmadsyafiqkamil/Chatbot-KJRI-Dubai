@@ -13,6 +13,14 @@ password: ${POSTGRES_PASSWORD}
 
 ---
 
+# --- Embedding Model ---
+kind: embeddingModels
+name: gemini-embedding
+type: gemini
+model: gemini-embedding-001
+
+---
+
 # --- Tool 1: Cari layanan konsuler berdasarkan kata kunci ---
 kind: tools
 name: cari-layanan
@@ -58,3 +66,29 @@ parameters:
   - name: kode_atau_nama
     type: string
     description: "Kode pelayanan (contoh: 'PSP-001') atau nama/kata kunci layanan (contoh: 'paspor pekerja formal')"
+
+---
+
+# --- Tool 3: Cari layanan konsuler menggunakan semantic search ---
+kind: tools
+name: cari-layanan-semantik
+type: postgres-sql
+source: kjri-db
+description: >-
+  Cari layanan konsuler menggunakan pencarian semantik/makna.
+  Gunakan ketika pencarian keyword biasa tidak menghasilkan hasil,
+  atau user mendeskripsikan situasi tanpa menyebut nama layanan.
+  Contoh: "anak saya baru lahir di Dubai", "mau balik ke Indonesia",
+  "SIM Indonesia perlu diterjemahkan", "mau nikah di sini caranya gimana".
+statement: |
+  SELECT kode_pelayanan, nama_pelayanan, biaya_aed, biaya_keterangan,
+         1 - (embedding <=> $1) AS similarity_score
+  FROM layanan_konsuler
+  WHERE embedding IS NOT NULL
+  ORDER BY embedding <=> $1
+  LIMIT 5
+parameters:
+  - name: query
+    type: string
+    description: "Deskripsi kebutuhan atau situasi user dalam Bahasa Indonesia"
+    embeddedBy: gemini-embedding
