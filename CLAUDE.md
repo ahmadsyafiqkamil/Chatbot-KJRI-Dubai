@@ -21,7 +21,7 @@ docker compose up -d
 
 ### Running the Agent
 ```bash
-# Start all services (PostgreSQL, Toolbox, pgAdmin, Agent)
+# Start all services (PostgreSQL, Toolbox, pgAdmin, Agent, Ngrok)
 docker compose up -d
 
 # Run agent locally for development (requires LiteLLM/Ollama running)
@@ -30,21 +30,26 @@ adk web --host 0.0.0.0 --port 8000
 # View logs
 docker compose logs -f agent
 docker compose logs -f toolbox
+docker compose logs -f ngrok  # shows the public HTTPS URL
 ```
 
 ### Service URLs
 - Agent API/UI: `http://localhost:8000`
+- MCP Toolbox: `http://localhost:5001`
 - pgAdmin: `http://localhost:5050`
+- ChromaDB: `http://localhost:8001`
 - Ollama: `http://localhost:11434`
+- Ngrok dashboard: `http://localhost:4040` (shows public tunnel URL)
 
 ## Architecture
 
 ### Stack
-- **Framework**: Google ADK v1.26.0 (`google-adk`)
-- **LLM routing**: LiteLLM v1.82.0 (abstracts Ollama/Gemini)
-- **Database tools**: `toolbox-adk` + `toolbox-core` v0.5.8 (MCP Toolbox)
-- **Database**: PostgreSQL 16, initialized from `rag_kjri_dubai.sql` (gitignored)
-- **Containers**: Docker Compose with 4 services: `postgres`, `toolbox`, `pgadmin`, `agent`
+- **Framework**: Google ADK (`google-adk`)
+- **LLM routing**: LiteLLM (abstracts Ollama/Gemini)
+- **Database tools**: `toolbox-adk` (MCP Toolbox v0.28.0)
+- **Database**: PostgreSQL 16 with pgvector, initialized from `rag_kjri_dubai.sql` (gitignored)
+- **Vector store**: ChromaDB (port 8001) — available in agent via `CHROMA_URL`
+- **Containers**: Docker Compose with 6 services: `postgres`, `toolbox`, `pgadmin`, `chromadb`, `agent`, `ngrok`
 
 ### How It Works
 
@@ -58,24 +63,29 @@ User → ADK Agent (port 8000)
 
 The agent in [chatbot_kjri_dubai/agent.py](chatbot_kjri_dubai/agent.py) is the only source of agent logic. It:
 1. Loads LLM config from environment (`LLM_PROVIDER`, `LLM_MODEL`)
-2. Connects to MCP Toolbox at `TOOLBOX_URL` to get two SQL-backed tools
+2. Connects to MCP Toolbox at `TOOLBOX_URL` to get three SQL-backed tools
 3. Runs as a `google.adk.Agent` with an Indonesian-language system prompt
 
 ### Available Tools (via MCP Toolbox)
 Defined in [toolbox/config/tools.yaml](toolbox/config/tools.yaml):
 - `cari-layanan` — keyword search over consular services (returns code, name, cost in AED)
 - `get-detail-layanan` — full detail for a service (requirements, costs, notes) by code or name
+- `cari-layanan-semantik` — pgvector semantic search using Gemini embeddings (`gemini-embedding-001`); used when keyword search fails or user describes a situation without naming a service
+
+The agent's instruction prompt encodes the tool-selection strategy: try `cari-layanan` first, fall back to `cari-layanan-semantik`, then call `get-detail-layanan` for full details.
 
 ### LLM Configuration
 Set in `.env`:
 ```
 LLM_PROVIDER=ollama        # or "gemini"
 LLM_MODEL=qwen2.5:0.5b    # any Ollama model, or gemini model name
-GEMINI_API_KEY=            # required if LLM_PROVIDER=gemini
+GEMINI_API_KEY=            # ALWAYS required — used for semantic search embeddings even when LLM_PROVIDER=ollama
 OLLAMA_API_BASE=http://localhost:11434
 ```
 
 LiteLLM model string is constructed as `ollama_chat/<model>` for Ollama or `gemini/<model>` for Gemini.
+
+> **Note**: `GEMINI_API_KEY` is passed to the MCP Toolbox container as `GOOGLE_API_KEY` and is required for the `cari-layanan-semantik` tool regardless of which LLM provider is used.
 
 ### Database
 The PostgreSQL schema and data live in `rag_kjri_dubai.sql` (gitignored — do not commit). The `toolbox` service mounts this file and runs it on first start. To add/modify services, edit the SQL file and reinitialize the database.

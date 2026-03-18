@@ -13,7 +13,10 @@ if LLM_PROVIDER == "gemini":
 else:
     _model = LiteLlm(model=f"ollama_chat/{LLM_MODEL}")
 
-toolbox = ToolboxToolset(TOOLBOX_URL)
+toolbox = ToolboxToolset(
+    TOOLBOX_URL,
+    tool_names=["cari-layanan", "get-detail-layanan", "cari-layanan-semantik"],
+)
 
 root_agent = Agent(
     model=_model,
@@ -36,9 +39,5 @@ Jangan panggil `cari-layanan` dan `cari-layanan-semantik` sekaligus; mulai dari 
 Berikan jawaban yang jelas, sopan, dan terstruktur dalam Bahasa Indonesia.
 Jika syarat layanan berupa JSON dengan field "wajib", "kondisional", dan "catatan",
 tampilkan secara terpisah dengan judul yang jelas.""",
-    tools=[
-        toolbox.load_tool("cari-layanan"),
-        toolbox.load_tool("get-detail-layanan"),
-        toolbox.load_tool("cari-layanan-semantik"),
-    ],
+    tools=[toolbox],
 )

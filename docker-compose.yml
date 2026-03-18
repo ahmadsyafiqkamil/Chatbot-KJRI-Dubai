@@ -88,6 +88,18 @@ services:
       - toolbox
       - chromadb
 
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: kjri_ngrok
+    restart: unless-stopped
+    ports:
+      - "4040:4040"
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN}
+    command: ["http", "http://agent:8000"]
+    depends_on:
+      - agent
+
 volumes:
   postgres_data:
   chromadb_data:
