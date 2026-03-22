@@ -53,12 +53,7 @@ info "Menunggu Ollama siap..."
 sleep 5
 
 # ─── 3. Pull model LLM ───────────────────────
-MODEL="${LLM_MODEL:-qwen2.5:0.5b}"
-
-if [[ -f ".env" ]]; then
-    PARSED=$(grep -E "^LLM_MODEL=" .env | cut -d= -f2-)
-    [[ -n "$PARSED" ]] && MODEL="$PARSED"
-fi
+MODEL="qwen2.5:0.5b"
 
 info "Menarik model $MODEL..."
 ollama pull "$MODEL"

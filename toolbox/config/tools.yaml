@@ -92,3 +92,122 @@ parameters:
     type: string
     description: "Deskripsi kebutuhan atau situasi user dalam Bahasa Indonesia"
     embeddedBy: gemini-embedding
+
+---
+
+# --- Tool 4: Simpan identitas pengguna ---
+kind: tools
+name: simpan-identitas
+type: postgres-sql
+source: kjri-db
+description: >-
+  Simpan data identitas pengguna chatbot ke database.
+  Panggil tool ini di awal session setelah mengumpulkan data diri user.
+  Parameter session_id dan nama_lengkap wajib diisi.
+  Parameter data_tambahan berisi JSON object dengan field opsional.
+  Tool ini mengembalikan id pengguna yang bisa digunakan untuk simpan-interaksi.
+statement: |
+  INSERT INTO pengguna (
+    session_id, nama_lengkap, nomor_paspor, nomor_ic, nomor_telepon,
+    email, alamat_domisili, kota_domisili, jenis_identitas_lain, nomor_identitas_lain
+  ) VALUES (
+    $1, $2,
+    $3::jsonb->>'nomor_paspor',
+    $3::jsonb->>'nomor_ic',
+    $3::jsonb->>'nomor_telepon',
+    $3::jsonb->>'email',
+    $3::jsonb->>'alamat_domisili',
+    $3::jsonb->>'kota_domisili',
+    $3::jsonb->>'jenis_identitas_lain',
+    $3::jsonb->>'nomor_identitas_lain'
+  )
+  RETURNING id, nama_lengkap, created_at
+parameters:
+  - name: session_id
+    type: string
+    description: "ID session percakapan saat ini"
+  - name: nama_lengkap
+    type: string
+    description: "Nama lengkap pengguna (WAJIB)"
+  - name: data_tambahan
+    type: string
+    description: >-
+      JSON object berisi data opsional pengguna. Contoh:
+      {"nomor_paspor":"A1234567","nomor_ic":"784-1234-1234567-1","nomor_telepon":"+971501234567","email":"user@email.com","alamat_domisili":"Deira, Dubai","kota_domisili":"Dubai","jenis_identitas_lain":"KITAS","nomor_identitas_lain":"ABC123"}.
+      Kirim "{}" jika tidak ada data tambahan.
+
+---
+
+# --- Tool 5: Simpan data interaksi chatbot ---
+kind: tools
+name: simpan-interaksi
+type: postgres-sql
+source: kjri-db
+description: >-
+  Simpan data interaksi chatbot ke database untuk keperluan logging dan analitik.
+  Panggil tool ini setelah selesai menjawab pertanyaan user tentang layanan konsuler.
+  Kirimkan session_id, nama pengguna (jika diketahui), layanan yang diminta,
+  pesan user, ringkasan jawaban agent, dan daftar tools yang dipanggil.
+statement: |
+  INSERT INTO chat_sessions (session_id, nama_pengguna, layanan_diminta, pesan_user, pesan_agent, jumlah_pesan, tools_dipanggil, channel, pengguna_id)
+  VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9::uuid)
+  RETURNING id, created_at
+parameters:
+  - name: session_id
+    type: string
+    description: "ID session percakapan"
+  - name: nama_pengguna
+    type: string
+    description: "Nama pengguna dari data identitas yang dikumpulkan di awal session"
+  - name: layanan_diminta
+    type: string
+    description: "Nama atau kode layanan yang ditanyakan user"
+  - name: pesan_user
+    type: string
+    description: "Pertanyaan atau pesan utama dari user"
+  - name: pesan_agent
+    type: string
+    description: "Ringkasan singkat jawaban agent"
+  - name: jumlah_pesan
+    type: string
+    description: "Jumlah total pesan dalam percakapan (angka sebagai string)"
+  - name: tools_dipanggil
+    type: string
+    description: "JSON array berisi nama tools yang dipanggil, contoh: '[\"cari-layanan\", \"get-detail-layanan\"]'"
+  - name: channel
+    type: string
+    description: "Sumber akses: 'web', 'whatsapp', atau 'api'. Default: 'web'"
+  - name: pengguna_id
+    type: string
+    description: "UUID pengguna dari hasil simpan-identitas. Kosongkan jika identitas belum tersimpan"
+
+---
+
+# --- Tool 5: Statistik penggunaan chatbot (admin) ---
+kind: tools
+name: get-statistik-penggunaan
+type: postgres-sql
+source: kjri-db
+description: >-
+  Ambil statistik penggunaan chatbot untuk keperluan admin/analitik.
+  Menampilkan layanan yang paling sering ditanyakan beserta jumlah interaksi.
+  Bisa difilter berdasarkan rentang tanggal.
+statement: |
+  SELECT layanan_diminta,
+         COUNT(*) AS jumlah_interaksi,
+         MIN(created_at) AS pertama_ditanya,
+         MAX(created_at) AS terakhir_ditanya
+  FROM chat_sessions
+  WHERE layanan_diminta IS NOT NULL
+    AND created_at >= COALESCE($1::timestamptz, '1970-01-01'::timestamptz)
+    AND created_at <= COALESCE($2::timestamptz, NOW())
+  GROUP BY layanan_diminta
+  ORDER BY jumlah_interaksi DESC
+  LIMIT 20
+parameters:
+  - name: dari_tanggal
+    type: string
+    description: "Tanggal mulai filter (format: 'YYYY-MM-DD'), kosongkan untuk semua data"
+  - name: sampai_tanggal
+    type: string
+    description: "Tanggal akhir filter (format: 'YYYY-MM-DD'), kosongkan untuk sampai hari ini"

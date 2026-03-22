@@ -11,7 +11,9 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./rag_kjri_dubai.sql:/docker-entrypoint-initdb.d/rag_kjri_dubai.sql:ro
+      - ./rag_kjri_dubai.sql:/docker-entrypoint-initdb.d/01_rag_kjri_dubai.sql:ro
+      - ./migrations/001_chat_sessions.sql:/docker-entrypoint-initdb.d/02_chat_sessions.sql:ro
+      - ./migrations/002_pengguna.sql:/docker-entrypoint-initdb.d/03_pengguna.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-rag_kjri}"]
       interval: 10s

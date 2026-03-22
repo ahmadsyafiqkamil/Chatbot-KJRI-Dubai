@@ -63,7 +63,7 @@ User → ADK Agent (port 8000)
 
 The agent in [chatbot_kjri_dubai/agent.py](chatbot_kjri_dubai/agent.py) is the only source of agent logic. It:
 1. Loads LLM config from environment (`LLM_PROVIDER`, `LLM_MODEL`)
-2. Connects to MCP Toolbox at `TOOLBOX_URL` to get three SQL-backed tools
+2. Connects to MCP Toolbox at `TOOLBOX_URL` to get SQL-backed tools (search + logging)
 3. Runs as a `google.adk.Agent` with an Indonesian-language system prompt
 
 ### Available Tools (via MCP Toolbox)
@@ -72,7 +72,16 @@ Defined in [toolbox/config/tools.yaml](toolbox/config/tools.yaml):
 - `get-detail-layanan` — full detail for a service (requirements, costs, notes) by code or name
 - `cari-layanan-semantik` — pgvector semantic search using Gemini embeddings (`gemini-embedding-001`); used when keyword search fails or user describes a situation without naming a service
 
-The agent's instruction prompt encodes the tool-selection strategy: try `cari-layanan` first, fall back to `cari-layanan-semantik`, then call `get-detail-layanan` for full details.
+Identity & logging tools:
+- `simpan-identitas` — INSERT user identity (name, passport, IC, phone, email, address) into `pengguna` table; called at the start of each session after collecting user data
+- `simpan-interaksi` — INSERT interaction data (session, user, service requested, messages, pengguna_id FK) into `chat_sessions` table; called automatically by the agent after answering
+- `get-statistik-penggunaan` — admin tool to query usage statistics by date range
+
+### Conversation Flow
+1. **Identity collection** — Agent greets user and asks for identity (minimum: full name) at session start
+2. **Save identity** — Calls `simpan-identitas`, gets back `pengguna.id` UUID
+3. **Service search** — Try `cari-layanan` first, fall back to `cari-layanan-semantik`, then `get-detail-layanan`
+4. **Log interaction** — Calls `simpan-interaksi` with `pengguna_id` linking to the user's identity record
 
 ### LLM Configuration
 Set in `.env`:
@@ -89,6 +98,17 @@ LiteLLM model string is constructed as `ollama_chat/<model>` for Ollama or `gemi
 
 ### Database
 The PostgreSQL schema and data live in `rag_kjri_dubai.sql` (gitignored — do not commit). The `toolbox` service mounts this file and runs it on first start. To add/modify services, edit the SQL file and reinitialize the database.
+
+Migration files in `migrations/` are also mounted as init scripts (prefixed `02_`, `03_`, etc.) and run automatically on fresh database init. For existing databases, run migrations manually:
+```bash
+docker exec -i kjri_postgres psql -U postgres -d rag_kjri < migrations/001_chat_sessions.sql
+```
+
+#### pengguna table
+Stores user identity collected at session start: `id` (UUID PK), `session_id`, `nama_lengkap` (required), `nomor_paspor`, `nomor_ic`, `nomor_telepon`, `email`, `alamat_domisili`, `kota_domisili`, `jenis_identitas_lain`, `nomor_identitas_lain`, `created_at`. Indexed on `session_id`, `nomor_paspor`, `nama_lengkap`.
+
+#### chat_sessions table
+Tracks chatbot usage with columns: `id` (UUID), `session_id`, `nama_pengguna`, `layanan_diminta`, `pesan_user`, `pesan_agent`, `jumlah_pesan`, `tools_dipanggil` (JSONB), `channel`, `ip_address`, `user_agent`, `pengguna_id` (FK → pengguna), `created_at`, `updated_at`. Indexed on `session_id`, `created_at`, `layanan_diminta`, `pengguna_id`.
 
 ### Adding New Tools
 1. Add a new SQL query tool in [toolbox/config/tools.yaml](toolbox/config/tools.yaml)
