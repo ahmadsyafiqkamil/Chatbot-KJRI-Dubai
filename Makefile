@@ -1,18 +1,20 @@
 # KJRI Dubai Chatbot Makefile
 
-.PHONY: help start stop restart status logs clean
+.PHONY: help start stop restart status logs clean telegram-logs telegram-restart
 
 # Default target
 help:
 	@echo "KJRI Dubai Chatbot Commands"
 	@echo "==========================="
 	@echo ""
-	@echo "  make start    - Start all services (postgres, toolbox, pgadmin, chromadb, agent, ngrok)"
-	@echo "  make stop     - Stop all services"
-	@echo "  make restart  - Restart all services"
-	@echo "  make status   - Show container status and ngrok public URL"
-	@echo "  make logs     - Stream logs from all containers"
-	@echo "  make clean    - Stop and remove containers + volumes"
+	@echo "  make start         - Start all services"
+	@echo "  make stop          - Stop all services"
+	@echo "  make restart       - Restart all services"
+	@echo "  make status        - Show container status and ngrok public URL"
+	@echo "  make logs          - Stream logs from all containers"
+	@echo "  make clean         - Stop and remove containers + volumes"
+	@echo "  make telegram-logs - Stream Telegram bot logs"
+	@echo "  make telegram-restart - Rebuild and restart Telegram bot"
 	@echo ""
 
 start:
@@ -41,3 +43,10 @@ clean:
 	@echo "Removing containers and volumes..."
 	@docker compose down -v
 	@echo "Cleanup complete."
+
+telegram-logs:
+	@docker compose logs -f telegram-bot
+
+telegram-restart:
+	@echo "Rebuilding and restarting Telegram bot..."
+	@docker compose up -d --build telegram-bot

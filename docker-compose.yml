@@ -90,6 +90,28 @@ services:
       - toolbox
       - chromadb
 
+  telegram-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.telegram
+    container_name: kjri_telegram_bot
+    restart: unless-stopped
+    ports:
+      - "${TELEGRAM_BOT_PORT:-8080}:8080"
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      WEBHOOK_BASE_URL: ${WEBHOOK_BASE_URL:-}
+      NGROK_API: http://ngrok:4040
+      OLLAMA_API_BASE: http://host.docker.internal:11434
+      TOOLBOX_URL: http://toolbox:5000
+      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+      LLM_MODEL: ${LLM_MODEL:-qwen2.5:0.5b}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - toolbox
+
   ngrok:
     image: ngrok/ngrok:latest
     container_name: kjri_ngrok
@@ -98,9 +120,11 @@ services:
       - "4040:4040"
     environment:
       NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN}
-    command: ["http", "http://agent:8000"]
+    # Tunnel ke telegram-bot agar webhook Telegram bisa menerima public URL
+    # Ganti ke "http://agent:8000" jika butuh public URL untuk web UI
+    command: ["http", "http://telegram-bot:8080"]
     depends_on:
-      - agent
+      - telegram-bot
 
 volumes:
   postgres_data:
