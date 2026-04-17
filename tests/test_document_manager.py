@@ -55,3 +55,30 @@ class TestDocumentManager:
             # Each chunk should be approximately chunk_size
             for chunk in chunks[:-1]:  # Skip last chunk as it may be smaller
                 assert len(chunk.text) > 0
+
+    def test_parse_pdf(self):
+        """Test parsing a PDF document."""
+        with patch("chatbot_kjri_dubai.rag.document_manager.ChromaDBClient"):
+            with patch("chatbot_kjri_dubai.rag.document_manager.PdfReader") as mock_reader:
+                # Mock PDF with 2 pages
+                mock_reader_instance = MagicMock()
+                mock_reader.return_value = mock_reader_instance
+
+                page1 = MagicMock()
+                page1.extract_text.return_value = "Page 1 content"
+
+                page2 = MagicMock()
+                page2.extract_text.return_value = "Page 2 content"
+
+                mock_reader_instance.pages = [page1, page2]
+
+                dm = DocumentManager(chroma_url="http://localhost:8001")
+
+                with patch("builtins.open", create=True) as mock_open:
+                    mock_open.return_value.__enter__ = lambda s: s
+                    mock_open.return_value.__exit__ = lambda s, *args: None
+
+                    text = dm.parse_pdf("/path/to/test.pdf")
+
+                    assert "Page 1 content" in text
+                    assert "Page 2 content" in text

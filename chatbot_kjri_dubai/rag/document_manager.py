@@ -5,6 +5,7 @@ Document Manager for parsing, chunking, and storing documents in RAG system.
 from dataclasses import dataclass
 from typing import List, Optional, Dict
 import os
+from pypdf import PdfReader
 from chatbot_kjri_dubai.rag.chromadb_client import ChromaDBClient
 
 
@@ -98,3 +99,29 @@ class DocumentManager:
                 break
 
         return chunks
+
+    def parse_pdf(self, file_path: str) -> str:
+        """
+        Parse PDF file and extract text.
+
+        Args:
+            file_path: Path to PDF file
+
+        Returns:
+            Extracted text from all pages
+        """
+        text_parts = []
+
+        try:
+            with open(file_path, "rb") as pdf_file:
+                reader = PdfReader(pdf_file)
+
+                for page_num, page in enumerate(reader.pages, 1):
+                    page_text = page.extract_text()
+                    if page_text:
+                        text_parts.append(f"[Page {page_num}]\n{page_text}")
+
+            return "\n".join(text_parts)
+
+        except Exception as e:
+            raise IOError(f"Failed to parse PDF {file_path}: {str(e)}")
