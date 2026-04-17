@@ -13,3 +13,5 @@ __pycache__/
 pgdata/
 
 rag_kjri_dubai.sql
+.serena/
+.claude/

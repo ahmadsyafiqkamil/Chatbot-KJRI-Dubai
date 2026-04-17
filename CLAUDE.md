@@ -114,3 +114,84 @@ Tracks chatbot usage with columns: `id` (UUID), `session_id`, `nama_pengguna`, `
 1. Add a new SQL query tool in [toolbox/config/tools.yaml](toolbox/config/tools.yaml)
 2. Register it in the `tools` list inside [chatbot_kjri_dubai/agent.py](chatbot_kjri_dubai/agent.py) by adding it to the `toolbox.load_toolset()` call or individual tool loads
 3. Update the agent's instruction prompt if the tool changes response behavior
+
+## RAG Implementation (In Progress)
+
+**Status**: 📋 Masterplan approved, awaiting Phase 1 implementation
+**Reference**: [Advanced RAG Masterplan](docs/superpowers/specs/2026-04-17-advanced-rag-masterplan.md)
+
+### Overview
+A comprehensive **Retrieval-Augmented Generation (RAG)** system is planned to enhance the chatbot with:
+- **Document management**: Upload & parse PDF/TXT/Markdown documents via LlamaIndex
+- **Multi-stage retrieval**: Keyword search (PostgreSQL FTS) → Semantic search (ChromaDB) → Reranking
+- **Chat history context**: Store & retrieve relevant past conversations for context-aware responses
+- **Advanced prompting**: Structured prompt templates with few-shot examples
+
+### Architecture (Enhanced)
+```
+User Query
+    ↓
+Query Expansion (LLM generates variants)
+    ↓
+┌─────────────────────────────────────────────┐
+│ Multi-Stage Retrieval Pipeline              │
+├─────────────────────────────────────────────┤
+│ Stage 1: Keyword Search (PostgreSQL FTS)   │
+│ Stage 2: Semantic Search (ChromaDB)        │
+│ Stage 3: Reranking & Deduplication         │
+└─────────────────────────────────────────────┘
+    ↓
+Assemble Context (documents + chat history + query)
+    ↓
+LLM (Gemini) with Structured Prompt
+    ↓
+Agent Response
+```
+
+### New Database Tables (RAG Phase)
+When RAG Phase 1 is implemented, these tables will be added:
+
+#### `documents` (PostgreSQL)
+Stores uploaded documents with metadata: `id`, `title`, `source` (pdf/markdown/txt), `original_filename`, `content_text`, `file_size_bytes`, `uploaded_by`, `upload_date`, `version`, `tags` (JSONB), `metadata` (JSONB), `is_active`, `created_at`.
+
+#### `document_chunks` (PostgreSQL)
+Semantic chunks from documents: `id`, `document_id` (FK), `chunk_number`, `chunk_text`, `chunk_tokens`, `start_char`, `end_char`, `is_embedded`, `created_at`.
+
+#### `chat_history` (PostgreSQL)
+Enhanced chat tracking for RAG context: `id`, `session_id`, `user_id`, `role` (user/agent), `message_text`, `embedding_id` (ChromaDB ref), `retrieved_doc_ids` (which documents), `tools_called` (JSONB), `confidence_score`, `metadata`, `created_at`.
+
+#### `retrieval_analytics` (PostgreSQL)
+Tracks retrieval quality: `id`, `query_text`, `query_embedding_id`, `retrieved_doc_ids`, `retrieval_score`, `user_satisfaction` (1-5), `is_successful`, `execution_time_ms`, `created_at`.
+
+### New ChromaDB Collections (RAG Phase)
+- `document_chunks` — embeddings of all document chunks with metadata
+- `chat_history` — embeddings of messages for context retrieval
+
+### New RAG Module Structure
+When Phase 1 begins, this module will be created:
+
+```
+chatbot_kjri_dubai/
+├── rag/
+│   ├── __init__.py
+│   ├── document_manager.py    # Upload, parse, chunk documents
+│   ├── embeddings.py          # Gemini embedding integration
+│   ├── retrieval.py           # Multi-stage retrieval pipeline
+│   ├── chromadb_client.py     # ChromaDB connection & queries
+│   ├── history_manager.py     # Chat history storage & retrieval
+│   └── prompt_templates.py    # Structured prompt templates
+├── migrations/
+│   ├── 001_documents_table.sql
+│   ├── 002_chunks_table.sql
+│   ├── 003_chat_history_table.sql
+│   └── 004_analytics_table.sql
+```
+
+### RAG Timeline
+- **Phase 1 (Weeks 1-3)**: Database schema, ChromaDB setup, document parsing
+- **Phase 2 (Weeks 4-5)**: Multi-stage retrieval pipeline
+- **Phase 3 (Weeks 6-7)**: Chat history & context management
+- **Phase 4 (Weeks 8-9)**: Agent integration & E2E testing
+- **Phase 5 (Week 10)**: Analytics & monitoring
+
+See [masterplan](docs/superpowers/specs/2026-04-17-advanced-rag-masterplan.md) for detailed user stories, technical decisions, and success metrics.
