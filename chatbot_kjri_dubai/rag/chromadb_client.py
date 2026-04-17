@@ -87,3 +87,52 @@ class ChromaDBClient:
             return True
         except Exception:
             return False
+
+    def add_documents(self, collection, documents: list):
+        """
+        Add documents/chunks to ChromaDB collection.
+
+        Args:
+            collection: ChromaDB collection object
+            documents: List of dicts with keys: id, text, embedding, metadata
+                      Example: [{"id": "chunk_1", "text": "...", "embedding": [...], "metadata": {...}}]
+        """
+        ids = [doc["id"] for doc in documents]
+        texts = [doc["text"] for doc in documents]
+        embeddings = [doc.get("embedding") for doc in documents]
+        metadatas = [doc.get("metadata", {}) for doc in documents]
+
+        collection.add(
+            ids=ids,
+            documents=texts,
+            embeddings=embeddings,
+            metadatas=metadatas
+        )
+
+    def query(self, collection, query_embedding: list, n_results: int = 5) -> dict:
+        """
+        Query ChromaDB collection with vector embedding.
+
+        Args:
+            collection: ChromaDB collection object
+            query_embedding: Vector embedding to search for
+            n_results: Number of results to return (default: 5)
+
+        Returns:
+            Query results dict with ids, documents, distances, metadatas
+        """
+        results = collection.query(
+            query_embeddings=[query_embedding],
+            n_results=n_results
+        )
+        return results
+
+    def delete_documents(self, collection, ids: list):
+        """
+        Delete documents/chunks from ChromaDB collection.
+
+        Args:
+            collection: ChromaDB collection object
+            ids: List of document IDs to delete
+        """
+        collection.delete(ids=ids)
