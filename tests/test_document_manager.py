@@ -109,3 +109,17 @@ class TestDocumentManager:
 
                 assert "# Heading" in text
                 assert "This is markdown content." in text
+
+    def test_get_chunks_with_document_metadata(self):
+        """Test retrieving chunks with full document metadata."""
+        with patch("chatbot_kjri_dubai.rag.document_manager.ChromaDBClient"):
+            dm = DocumentManager(chroma_url="http://localhost:8001")
+
+            chunks = dm._chunk_text_by_size("Test content " * 100, chunk_size=256, overlap=50)
+
+            # Verify chunks have proper structure
+            for chunk in chunks:
+                assert hasattr(chunk, "document_id")
+                assert hasattr(chunk, "chunk_number")
+                assert hasattr(chunk, "text")
+                assert hasattr(chunk, "tokens")

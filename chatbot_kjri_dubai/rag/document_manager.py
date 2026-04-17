@@ -183,3 +183,67 @@ class DocumentManager:
             return self.parse_markdown(file_path)
         else:
             raise ValueError(f"Unsupported file format: {file_path}. Supported: PDF, TXT, Markdown")
+
+    def process_and_store_document(
+        self,
+        file_path: str,
+        document_title: str,
+        source: str = "pdf"
+    ) -> str:
+        """
+        Process document, chunk it, and prepare for storage.
+
+        Args:
+            file_path: Path to document file
+            document_title: Human-readable title for document
+            source: Document source type (pdf, txt, markdown)
+
+        Returns:
+            Document ID (UUID) for reference
+
+        Note: Actual database storage happens in Phase 2.
+        """
+        # Parse document
+        content = self.parse_document(file_path)
+
+        # Get file info
+        file_size = os.path.getsize(file_path)
+        filename = os.path.basename(file_path)
+
+        # Chunk content
+        chunks = self._chunk_text_by_size(
+            content,
+            chunk_size=self.chunk_size,
+            chunk_overlap=self.chunk_overlap
+        )
+
+        # Store chunk metadata for later database insertion
+        self.last_document_chunks = chunks
+        self.last_document_info = {
+            "title": document_title,
+            "source": source,
+            "filename": filename,
+            "content": content,
+            "file_size": file_size,
+            "chunk_count": len(chunks)
+        }
+
+        return f"doc_{len(chunks)}_{filename}"
+
+    def get_processed_chunks(self) -> List[DocumentChunk]:
+        """
+        Get chunks from last processed document.
+
+        Returns:
+            List of DocumentChunk objects
+        """
+        return getattr(self, "last_document_chunks", [])
+
+    def get_processed_document_info(self) -> Dict:
+        """
+        Get metadata from last processed document.
+
+        Returns:
+            Dictionary with document info
+        """
+        return getattr(self, "last_document_info", {})
