@@ -214,7 +214,7 @@ class DocumentManager:
         chunks = self._chunk_text_by_size(
             content,
             chunk_size=self.chunk_size,
-            chunk_overlap=self.chunk_overlap
+            overlap=self.chunk_overlap
         )
 
         # Store chunk metadata for later database insertion
