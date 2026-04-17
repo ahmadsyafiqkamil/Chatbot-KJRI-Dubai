@@ -82,3 +82,30 @@ class TestDocumentManager:
 
                     assert "Page 1 content" in text
                     assert "Page 2 content" in text
+
+    def test_parse_txt(self):
+        """Test parsing a TXT file."""
+        with patch("chatbot_kjri_dubai.rag.document_manager.ChromaDBClient"):
+            dm = DocumentManager(chroma_url="http://localhost:8001")
+
+            with patch("builtins.open", create=True) as mock_open:
+                mock_open.return_value.__enter__.return_value.read.return_value = "Sample text content"
+
+                text = dm.parse_txt("/path/to/test.txt")
+
+                assert text == "Sample text content"
+
+    def test_parse_markdown(self):
+        """Test parsing a Markdown file."""
+        with patch("chatbot_kjri_dubai.rag.document_manager.ChromaDBClient"):
+            dm = DocumentManager(chroma_url="http://localhost:8001")
+
+            markdown_content = "# Heading\n\nThis is markdown content."
+
+            with patch("builtins.open", create=True) as mock_open:
+                mock_open.return_value.__enter__.return_value.read.return_value = markdown_content
+
+                text = dm.parse_markdown("/path/to/test.md")
+
+                assert "# Heading" in text
+                assert "This is markdown content." in text
