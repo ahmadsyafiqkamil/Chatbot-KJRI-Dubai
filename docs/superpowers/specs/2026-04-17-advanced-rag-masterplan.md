@@ -207,29 +207,37 @@ CREATE INDEX idx_analytics_created_at ON retrieval_analytics(created_at DESC);
 
 ## 5. Project Phases & Timeline
 
-### **PHASE 1: Foundation & Infrastructure (Weeks 1-3)**
+**Updated: 2026-04-21** | **Total Duration: 6-7 weeks** | **Approach: Tier-Based Phases for faster MVP**
 
-#### Phase 1.1: Database Schema & ChromaDB Setup (Week 1)
-- [ ] Create PostgreSQL tables (documents, chunks, chat_history, analytics)
-- [ ] Setup ChromaDB collections (document_chunks, chat_history)
-- [ ] Create indexes for performance
-- [ ] Write migration scripts
+---
 
-#### Phase 1.2: LlamaIndex Integration & Document Parsing (Week 2)
-- [ ] Install & configure LlamaIndex
-- [ ] Implement PDF parser (handle images, multi-page)
-- [ ] Implement TXT parser
-- [ ] Implement Markdown parser
-- [ ] Error handling for malformed documents
-- [ ] Test with sample KJRI documents
+### **PHASE 1: Foundation & Infrastructure** ✅ COMPLETE
 
-#### Phase 1.3: Semantic Chunking Pipeline (Week 3)
-- [ ] Implement semantic chunking (paragraph-aware)
-- [ ] Configure chunk size (500 tokens target)
-- [ ] Implement overlap strategy (100-token overlap)
-- [ ] Batch embedding generation (Gemini API)
-- [ ] Store chunks in PostgreSQL + ChromaDB
-- [ ] Test chunking quality on various document types
+**Duration:** 3 weeks (Completed Apr 17-20, 2026)
+
+**Status:** ✅ All 22 tests passing, 396 LOC
+
+#### Phase 1.1: Database Schema & ChromaDB Setup
+- ✅ Created PostgreSQL tables (documents, chunks, chat_history, analytics)
+- ✅ Setup ChromaDB collections (document_chunks, chat_history)
+- ✅ Created indexes for performance
+- ✅ Migration scripts ready
+
+#### Phase 1.2: LlamaIndex Integration & Document Parsing
+- ✅ LlamaIndex installed & configured
+- ✅ PDF parser implemented (handles images, multi-page)
+- ✅ TXT parser implemented
+- ✅ Markdown parser implemented
+- ✅ Error handling for malformed documents
+- ✅ Tested with sample documents
+
+#### Phase 1.3: Semantic Chunking Pipeline
+- ✅ Semantic chunking (paragraph-aware)
+- ✅ Chunk size configured (500 tokens target)
+- ✅ Overlap strategy (100-token overlap)
+- ✅ Batch embedding generation (Gemini API)
+- ✅ Chunks stored in PostgreSQL + ChromaDB
+- ✅ Chunking quality tested on various document types
 
 **Deliverables:**
 - ✅ Document upload API endpoint
@@ -238,120 +246,114 @@ CREATE INDEX idx_analytics_created_at ON retrieval_analytics(created_at DESC);
 
 ---
 
-### **PHASE 2: Multi-Stage Retrieval Pipeline (Weeks 4-5)**
+### **PHASE 2: MVP Features (Tier 1-2)** ⏳ NEXT
 
-#### Phase 2.1: Keyword Search (Week 4)
-- [ ] Implement PostgreSQL full-text search (FTS)
-- [ ] BM25 scoring algorithm
-- [ ] Fuzzy matching (handle typos)
-- [ ] Metadata filtering (by source, date, tags)
-- [ ] Return top 10 results with scores
+**Duration:** 2 weeks | **Target:** Deliverable demo, basic integration
 
-#### Phase 2.2: Semantic Search (Week 4)
-- [ ] Query embedding generation
-- [ ] ChromaDB similarity search
-- [ ] Metadata filtering support
-- [ ] Configurable similarity threshold (default 0.5)
-- [ ] Return top 10 results with similarity scores
+#### Tier 1 Features: Essentials
+- [ ] **Chat History Storage (Dasar)** — Store user messages in PostgreSQL, retrieve last 5 per session
+- [ ] **Query Logging** — Log every query to `retrieval_analytics` table for analytics
 
-#### Phase 2.3: Hybrid Ranking & Reranking (Week 5)
-- [ ] Combine keyword + semantic scores (weighted average)
-- [ ] Deduplicate results
-- [ ] Final ranking (top 5)
-- [ ] Fallback logic (if semantic fails, keyword only)
-- [ ] Logging & metrics collection
+#### Tier 2 Features: Basic Search
+- [ ] **Keyword Search (PostgreSQL FTS)** — Full-text search on documents, support title/content/tags
+- [ ] **Metadata Filtering** — Filter by source (pdf/txt/markdown), date range, tags
+- [ ] **Simple Analytics Dashboard** — Top queries, search volume, basic metrics
 
 **Deliverables:**
-- ✅ Retrieval pipeline working end-to-end
-- ✅ Support multi-stage retrieval
-- ✅ Metrics: precision, recall, execution time
+- Functional keyword search API
+- Basic chat history retrieval
+- Query logging infrastructure
+- Simple dashboard for viewing logs
+
+**Timeline:**
+- Week 1-2: Implement Tier 1-2 features
+- EOW 2: Demo to stakeholders
 
 ---
 
-### **PHASE 3: Chat History & Context Management (Weeks 6-7)**
+### **PHASE 3: Production-Ready (Tier 3-4)** ⏳ AFTER PHASE 2
 
-#### Phase 3.1: Chat History Storage (Week 6)
-- [ ] Store all user-agent messages in PostgreSQL + ChromaDB
-- [ ] Embed each message for similarity search
-- [ ] Link to session + user
-- [ ] Store metadata (retrieved docs, tools called)
-- [ ] Implement retention policy (90 days)
+**Duration:** 2 weeks | **Target:** Complete retrieval pipeline, ready for agent integration
 
-#### Phase 3.2: Relevant History Retrieval (Week 6)
-- [ ] Similarity search in chat history
-- [ ] Rank by recency + relevance
-- [ ] Return top 5 relevant messages
-- [ ] Support session/user filtering
-- [ ] Anonymization (optional)
+#### Tier 3 Features: Semantic Search
+- [ ] **Query Embedding Generation** — Embed user queries using Gemini API
+- [ ] **ChromaDB Semantic Search** — Vector similarity search on document chunks
+- [ ] **Hybrid Ranking** — Combine keyword + semantic scores (weighted average 40/60)
+- [ ] **Chat History with Embeddings** — Embed messages, retrieve relevant past conversations
+- [ ] **Deduplication & Ranking** — Merge results, return top 5 final results
 
-#### Phase 3.3: Context Window Management (Week 7)
-- [ ] Token counting utility
-- [ ] Select last N messages (configurable, default 5)
-- [ ] Or select top K by relevance
-- [ ] Truncate if exceeds budget (4000 tokens)
-- [ ] Maintain conversation coherence when truncating
+#### Tier 4 Features: Advanced Retrieval
+- [ ] **Query Expansion** — LLM generates 3-5 query variants, run all through pipeline
+- [ ] **Cross-Encoder Reranking** — Re-score top 20 results with cross-encoder model
+- [ ] **Context Window Management** — Token counting utility, assemble context, truncate intelligently
+- [ ] **Fallback Strategies** — If semantic fails, fallback to keyword only
 
 **Deliverables:**
-- ✅ Chat history fully integrated
-- ✅ Context assembly for LLM input
-- ✅ Token budget management
+- Complete multi-stage retrieval pipeline
+- End-to-end semantic search working
+- Context assembly for LLM input
+- Retrieval metrics: precision@5, recall@10, MRR
+
+**Timeline:**
+- Week 3: Implement Tier 3 features (semantic search)
+- Week 4: Implement Tier 4 features (advanced retrieval)
+- EOW 4: Ready for agent integration
 
 ---
 
-### **PHASE 4: Agent Integration & E2E Testing (Weeks 8-9)**
+### **PHASE 4: Agent Integration & Testing** ⏳ AFTER PHASE 3
 
-#### Phase 4.1: Agent Integration (Week 8)
-- [ ] Integrate retrieval pipeline into `agent.py`
-- [ ] Update agent tools (add retrieval tools)
-- [ ] Implement query expansion (LLM generates variants)
-- [ ] Structured prompt template for RAG
-- [ ] Fallback strategies for low-confidence retrievals
+**Duration:** 1 week | **Target:** RAG fully integrated in agent, E2E working
 
-#### Phase 4.2: E2E Flow Testing (Week 8-9)
-- [ ] Test complete flow: query → retrieval → LLM response
-- [ ] Test with various query types (specific vs. vague)
-- [ ] Test fallback scenarios (no results, low confidence)
-- [ ] Performance testing (response latency)
-- [ ] Integration with existing KJRI tools
-
-#### Phase 4.3: Optimization & Tuning (Week 9)
-- [ ] Profile retrieval pipeline (identify bottlenecks)
-- [ ] Optimize chunking strategy (A/B test)
-- [ ] Tune ranking weights
-- [ ] Cache optimization (ChromaDB queries)
-- [ ] Load testing
+- [ ] **Agent Integration** — Integrate retrieval pipeline into `agent.py`
+- [ ] **Update Agent Tools** — Add retrieval tools to toolset
+- [ ] **E2E Flow Testing** — Test complete flow: query → retrieval → LLM response
+- [ ] **Fallback Scenarios** — No results, low confidence, timeouts
+- [ ] **Performance Testing** — Response latency, throughput
 
 **Deliverables:**
 - ✅ Agent fully integrated with RAG pipeline
 - ✅ All flows tested and working
 - ✅ Performance benchmarks documented
 
+**Timeline:**
+- Week 5: Full integration & testing
+
 ---
 
-### **PHASE 5: Analytics, Monitoring & Polish (Week 10)**
+### **PHASE 5: Analytics & Optimization** ⏳ AFTER PHASE 4
 
-#### Phase 5.1: Analytics Dashboard
-- [ ] Implement query analytics (top queries, zero-results, failed queries)
-- [ ] Retrieval metrics (precision@5, recall@10, MRR)
-- [ ] User satisfaction tracking
-- [ ] Export functionality for analysis
+**Duration:** 1 week | **Target:** Production monitoring, continuous improvement
 
-#### Phase 5.2: Monitoring & Logging
-- [ ] Structured logging for all retrieval operations
-- [ ] Error tracking & alerting
-- [ ] Performance monitoring (latency, throughput)
-- [ ] Data quality checks (embeddings, chunks)
-
-#### Phase 5.3: Documentation & Demo
-- [ ] System architecture documentation
-- [ ] API documentation
-- [ ] Operational guide (how to add documents, manage KB)
-- [ ] Demo & deployment guide
+- [ ] **Analytics Dashboard** — Query analytics, top queries, zero-result queries
+- [ ] **Retrieval Metrics** — Precision@5, recall@10, MRR, user satisfaction
+- [ ] **Performance Optimization** — A/B test chunking, tune ranking weights, caching
+- [ ] **Load Testing** — Latency benchmarking, throughput optimization
+- [ ] **Documentation** — Architecture, API, operational guide
 
 **Deliverables:**
 - ✅ Analytics dashboard live
 - ✅ Monitoring alerts configured
 - ✅ Complete documentation
+
+**Timeline:**
+- Week 6-7: Analytics, optimization, monitoring
+
+---
+
+### **Timeline Summary**
+
+| Phase | Duration | Start | End | Status |
+|-------|----------|-------|-----|--------|
+| 1: Foundation | 3 weeks | Apr 7 | Apr 20 | ✅ COMPLETE |
+| 2: MVP Features | 2 weeks | Apr 21 | May 5 | ⏳ Next |
+| 3: Production-Ready | 2 weeks | May 6 | May 19 | ⏳ After Phase 2 |
+| 4: Agent Integration | 1 week | May 20 | May 26 | ⏳ After Phase 3 |
+| 5: Analytics & Ops | 1 week | May 27 | Jun 2 | ⏳ After Phase 4 |
+| **Total** | **9 weeks** | Apr 7 | Jun 2 | — |
+
+**MVP Ready:** End of Phase 2 (May 5)  
+**Full Production:** End of Phase 4 (May 26)
 
 ---
 

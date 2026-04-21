@@ -117,67 +117,114 @@ Tracks chatbot usage with columns: `id` (UUID), `session_id`, `nama_pengguna`, `
 
 ## RAG Implementation (In Progress)
 
-**Status**: 📋 Masterplan approved, awaiting Phase 1 implementation
+**Status**: ✅ Phase 1 COMPLETE | ⏳ Phase 2 Next (MVP Features)
+**Updated**: 2026-04-21 | **Approach**: Tier-Based Phases for faster delivery
 **Reference**: [Advanced RAG Masterplan](docs/superpowers/specs/2026-04-17-advanced-rag-masterplan.md)
 
 ### Overview
-A comprehensive **Retrieval-Augmented Generation (RAG)** system is planned to enhance the chatbot with:
-- **Document management**: Upload & parse PDF/TXT/Markdown documents via LlamaIndex
+A comprehensive **Retrieval-Augmented Generation (RAG)** system to enhance the chatbot with:
+- **Document management**: Upload & parse PDF/TXT/Markdown documents via LlamaIndex ✅
 - **Multi-stage retrieval**: Keyword search (PostgreSQL FTS) → Semantic search (ChromaDB) → Reranking
 - **Chat history context**: Store & retrieve relevant past conversations for context-aware responses
 - **Advanced prompting**: Structured prompt templates with few-shot examples
 
-### Architecture (Enhanced)
-```
-User Query
-    ↓
-Query Expansion (LLM generates variants)
-    ↓
-┌─────────────────────────────────────────────┐
-│ Multi-Stage Retrieval Pipeline              │
-├─────────────────────────────────────────────┤
-│ Stage 1: Keyword Search (PostgreSQL FTS)   │
-│ Stage 2: Semantic Search (ChromaDB)        │
-│ Stage 3: Reranking & Deduplication         │
-└─────────────────────────────────────────────┘
-    ↓
-Assemble Context (documents + chat history + query)
-    ↓
-LLM (Gemini) with Structured Prompt
-    ↓
-Agent Response
-```
+### Current Phase Status
 
-### New Database Tables (RAG Phase)
-When RAG Phase 1 is implemented, these tables will be added:
+| Phase | Status | Duration | Target Completion |
+|-------|--------|----------|-------------------|
+| **1: Foundation** | ✅ COMPLETE | 3 weeks | Apr 20 ✓ |
+| **2: MVP Features** | ⏳ NEXT | 2 weeks | May 5 |
+| **3: Production-Ready** | 📋 Planned | 2 weeks | May 19 |
+| **4: Agent Integration** | 📋 Planned | 1 week | May 26 |
+| **5: Analytics & Ops** | 📋 Planned | 1 week | Jun 2 |
+
+**MVP Ready**: End of Phase 2 (May 5)  
+**Full Production**: End of Phase 4 (May 26)
+
+### Phase 1 (COMPLETE) ✅
+**Documentation**: Document parsing, semantic chunking, ChromaDB setup
+- ✅ All 22 tests passing (396 LOC)
+- ✅ PostgreSQL tables created (documents, document_chunks, chat_history, retrieval_analytics)
+- ✅ ChromaDB collections setup (document_chunks, chat_history)
+- ✅ LlamaIndex PDF/TXT/Markdown parsers implemented
+- ✅ Semantic chunking (500 tokens, 100-token overlap)
+- ✅ DocumentManager with token estimation
+- ✅ Full integration test suite
+
+### Phase 2 (NEXT) — MVP Features ⏳
+**Duration**: 2 weeks (Apr 21 - May 5) | **Tier 1-2 features**
+
+Tier 1 Features (Essentials):
+- [ ] Chat history storage — Store user messages, retrieve last 5 per session
+- [ ] Query logging — Log to `retrieval_analytics` for analytics
+
+Tier 2 Features (Basic Search):
+- [ ] PostgreSQL keyword search (FTS) — Search documents by title/content/tags
+- [ ] Metadata filtering — Filter by source, date range, tags
+- [ ] Simple analytics — Dashboard for top queries, search volume
+
+**MVP Deliverables**: Keyword search API, chat history, query logging, basic dashboard
+
+### Phase 3 (PLANNED) — Production-Ready 📋
+**Duration**: 2 weeks (May 6 - May 19) | **Tier 3-4 features**
+
+Tier 3 Features (Semantic Search):
+- [ ] Query embedding generation (Gemini API)
+- [ ] ChromaDB semantic search + metadata filtering
+- [ ] Hybrid ranking (keyword + semantic, 40/60 weighted)
+- [ ] Chat history embeddings + context retrieval
+- [ ] Deduplication & top-5 ranking
+
+Tier 4 Features (Advanced):
+- [ ] Query expansion (LLM generates 3-5 variants)
+- [ ] Cross-encoder reranking
+- [ ] Context window management + token counting
+- [ ] Fallback strategies
+
+**Deliverables**: Complete retrieval pipeline, E2E semantic search, context assembly
+
+### Phase 4 (PLANNED) — Agent Integration 📋
+**Duration**: 1 week (May 20 - May 26)
+- [ ] Integrate retrieval pipeline into `agent.py`
+- [ ] E2E flow testing (query → retrieval → response)
+- [ ] Fallback scenarios, performance testing
+**Deliverables**: RAG fully integrated in agent, all flows tested
+
+### Phase 5 (PLANNED) — Analytics & Optimization 📋
+**Duration**: 1 week (May 27 - Jun 2)
+- [ ] Analytics dashboard (precision@5, recall@10, MRR)
+- [ ] Performance optimization & A/B testing
+- [ ] Load testing, documentation
+**Deliverables**: Production monitoring, continuous improvement
+
+### Database Tables (RAG Phase)
 
 #### `documents` (PostgreSQL)
-Stores uploaded documents with metadata: `id`, `title`, `source` (pdf/markdown/txt), `original_filename`, `content_text`, `file_size_bytes`, `uploaded_by`, `upload_date`, `version`, `tags` (JSONB), `metadata` (JSONB), `is_active`, `created_at`.
+Stores uploaded documents: `id`, `title`, `source` (pdf/markdown/txt), `original_filename`, `content_text`, `file_size_bytes`, `uploaded_by`, `upload_date`, `version`, `tags` (JSONB), `metadata` (JSONB), `is_active`, `created_at`.
 
 #### `document_chunks` (PostgreSQL)
-Semantic chunks from documents: `id`, `document_id` (FK), `chunk_number`, `chunk_text`, `chunk_tokens`, `start_char`, `end_char`, `is_embedded`, `created_at`.
+Semantic chunks: `id`, `document_id` (FK), `chunk_number`, `chunk_text`, `chunk_tokens`, `start_char`, `end_char`, `is_embedded`, `created_at`.
 
 #### `chat_history` (PostgreSQL)
-Enhanced chat tracking for RAG context: `id`, `session_id`, `user_id`, `role` (user/agent), `message_text`, `embedding_id` (ChromaDB ref), `retrieved_doc_ids` (which documents), `tools_called` (JSONB), `confidence_score`, `metadata`, `created_at`.
+Enhanced chat tracking: `id`, `session_id`, `user_id`, `role` (user/agent), `message_text`, `embedding_id`, `retrieved_doc_ids`, `tools_called` (JSONB), `confidence_score`, `metadata`, `created_at`.
 
 #### `retrieval_analytics` (PostgreSQL)
-Tracks retrieval quality: `id`, `query_text`, `query_embedding_id`, `retrieved_doc_ids`, `retrieval_score`, `user_satisfaction` (1-5), `is_successful`, `execution_time_ms`, `created_at`.
+Retrieval metrics: `id`, `query_text`, `query_embedding_id`, `retrieved_doc_ids`, `retrieval_score`, `user_satisfaction` (1-5), `is_successful`, `execution_time_ms`, `created_at`.
 
-### New ChromaDB Collections (RAG Phase)
-- `document_chunks` — embeddings of all document chunks with metadata
+### ChromaDB Collections
+- `document_chunks` — embeddings of document chunks with metadata
 - `chat_history` — embeddings of messages for context retrieval
 
-### New RAG Module Structure
-When Phase 1 begins, this module will be created:
+### RAG Module Structure
 
 ```
 chatbot_kjri_dubai/
 ├── rag/
 │   ├── __init__.py
-│   ├── document_manager.py    # Upload, parse, chunk documents
+│   ├── document_manager.py    # Upload, parse, chunk documents ✅
+│   ├── chromadb_client.py     # ChromaDB connection & queries ✅
 │   ├── embeddings.py          # Gemini embedding integration
 │   ├── retrieval.py           # Multi-stage retrieval pipeline
-│   ├── chromadb_client.py     # ChromaDB connection & queries
 │   ├── history_manager.py     # Chat history storage & retrieval
 │   └── prompt_templates.py    # Structured prompt templates
 ├── migrations/
@@ -185,13 +232,10 @@ chatbot_kjri_dubai/
 │   ├── 002_chunks_table.sql
 │   ├── 003_chat_history_table.sql
 │   └── 004_analytics_table.sql
+├── tests/
+│   ├── test_document_manager.py ✅ (13 tests passing)
+│   ├── test_rag_integration.py ✅ (8 tests passing)
+│   └── test_retrieval.py (Phase 3)
 ```
 
-### RAG Timeline
-- **Phase 1 (Weeks 1-3)**: Database schema, ChromaDB setup, document parsing
-- **Phase 2 (Weeks 4-5)**: Multi-stage retrieval pipeline
-- **Phase 3 (Weeks 6-7)**: Chat history & context management
-- **Phase 4 (Weeks 8-9)**: Agent integration & E2E testing
-- **Phase 5 (Week 10)**: Analytics & monitoring
-
-See [masterplan](docs/superpowers/specs/2026-04-17-advanced-rag-masterplan.md) for detailed user stories, technical decisions, and success metrics.
+**Full Masterplan**: See [Advanced RAG Masterplan](docs/superpowers/specs/2026-04-17-advanced-rag-masterplan.md) for detailed user stories, technical decisions, and success metrics.
