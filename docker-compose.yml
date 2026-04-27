@@ -14,6 +14,7 @@ services:
       - ./rag_kjri_dubai.sql:/docker-entrypoint-initdb.d/01_rag_kjri_dubai.sql:ro
       - ./migrations/001_chat_sessions.sql:/docker-entrypoint-initdb.d/02_chat_sessions.sql:ro
       - ./migrations/002_pengguna.sql:/docker-entrypoint-initdb.d/03_pengguna.sql:ro
+      - ./migrations/003_rag_phase0.sql:/docker-entrypoint-initdb.d/04_rag_phase0.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-rag_kjri}"]
       interval: 10s
@@ -64,7 +65,7 @@ services:
       CHROMA_SERVER_AUTH_CREDENTIALS_PROVIDER: ""
       CHROMA_SERVER_AUTH_PROVIDER: ""
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/v2/heartbeat || exit 1"]
+      test: ["CMD-SHELL", "(echo > /dev/tcp/localhost/8000) 2>/dev/null || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
