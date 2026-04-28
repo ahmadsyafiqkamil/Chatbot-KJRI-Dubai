@@ -5,7 +5,7 @@ from .chunking import chunk_text
 from .document_manager import DocumentManager
 from .embeddings import EmbeddingError, embed_text
 from .parsers import parse_file
-from .retrieval import Retriever
+from .retrieval import Retriever, retriever_from_env
 
 __all__ = [
     "DocumentManager",
@@ -15,4 +15,5 @@ __all__ = [
     "EmbeddingError",
     "ChromaDBClient",
     "Retriever",
+    "retriever_from_env",
 ]

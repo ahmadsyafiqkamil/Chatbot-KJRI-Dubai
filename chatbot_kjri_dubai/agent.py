@@ -1,8 +1,10 @@
+import json
 import os
 import re
 
 from google.adk.agents.llm_agent import Agent
 from google.adk.models import Gemini
+from google.adk.tools import FunctionTool
 from google.genai import types
 from toolbox_adk import ToolboxToolset
 from toolbox_adk.tool import ToolboxTool
@@ -55,6 +57,45 @@ toolbox = ToolboxToolset(
         "simpan-interaksi",
     ],
 )
+
+_rag_retriever = None
+
+
+def _get_retriever():
+    global _rag_retriever
+    if _rag_retriever is None:
+        from chatbot_kjri_dubai.rag.retrieval import retriever_from_env
+        _rag_retriever = retriever_from_env()
+    return _rag_retriever
+
+
+def cari_dokumen_rag(
+    pertanyaan: str,
+    jumlah_maksimal: int = 5,
+    alpha_kata_kunci: float = 0.4,
+) -> str:
+    """Cari cuplikan dari dokumen yang diunggah (PDF/MD/TXT) via hybrid retrieval (BM25 + vektor).
+
+    Gunakan jika user menanyakan isi panduan, FAQ, atau materi kebijakan dari basis dokumen
+    RAG — bukan untuk menggantikan daftar layanan konsuler di database layanan.
+
+    Untuk biaya (AED) dan persyaratan resmi layanan konsuler tetap wajib memakai
+    cari-layanan / get-detail-layanan. Jangan mengarang angka dari cuplikan dokumen saja.
+
+    Args:
+        pertanyaan (str): Pertanyaan atau kata kunci pencarian.
+        jumlah_maksimal (int): Jumlah cuplikan maksimal (1–15, default 5).
+        alpha_kata_kunci (float): Bobot pencarian kata kunci vs semantik, 0.0–1.0 (default 0.4).
+    """
+    try:
+        r = _get_retriever()
+        top_k = max(1, min(int(jumlah_maksimal), 15))
+        alpha = max(0.0, min(float(alpha_kata_kunci), 1.0))
+        rows = r.hybrid_retrieve(pertanyaan.strip(), top_k=top_k, alpha=alpha)
+        return json.dumps({"sukses": True, "hasil": rows}, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"sukses": False, "error": str(e)}, ensure_ascii=False)
+
 
 root_agent = Agent(
     model=_model,
@@ -168,6 +209,15 @@ Gunakan strategi berurutan:
 
 JANGAN panggil `cari-layanan` dan `cari-layanan-semantik` secara bersamaan.
 
+--- DOKUMEN RAG (opsional, Phase 2) ---
+
+Jika user menanyakan isi dokumen/panduan/FAQ dari materi unggahan (bukan pemetaan ke layanan
+konsuler), setelah triage layanan boleh panggil `cari_dokumen_rag` dengan pertanyaan yang sama.
+Jika `sukses` false atau `hasil` kosong, lanjutkan alur layanan seperti biasa tanpa menyebut kegagalan teknis.
+
+Cuplikan dokumen RAG boleh dipakai sebagai konteks tambahan. Untuk biaya dan persyaratan resmi
+layanan konsuler, utamakan output `get-detail-layanan`. Jangan mencampur sumber tanpa klarifikasi.
+
 --- FORMAT JAWABAN WAJIB (urutan tidak boleh diubah) ---
 
 ## Konteks singkat
@@ -233,5 +283,5 @@ Jika `simpan-identitas` atau `simpan-interaksi` gagal: ABAIKAN error, lanjutkan.
 JANGAN beritahu user tentang proses penyimpanan data internal.
 
 Selalu gunakan Bahasa Indonesia yang sopan, hangat, dan mudah dipahami.""",
-    tools=[toolbox],
+    tools=[toolbox, FunctionTool(cari_dokumen_rag)],
 )

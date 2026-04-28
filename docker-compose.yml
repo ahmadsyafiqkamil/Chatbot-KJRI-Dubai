@@ -15,6 +15,8 @@ services:
       - ./migrations/001_chat_sessions.sql:/docker-entrypoint-initdb.d/02_chat_sessions.sql:ro
       - ./migrations/002_pengguna.sql:/docker-entrypoint-initdb.d/03_pengguna.sql:ro
       - ./migrations/003_rag_phase0.sql:/docker-entrypoint-initdb.d/04_rag_phase0.sql:ro
+      - ./migrations/004_documents_phase1.sql:/docker-entrypoint-initdb.d/05_documents_phase1.sql:ro
+      - ./migrations/005_retrieval_fts.sql:/docker-entrypoint-initdb.d/06_retrieval_fts.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-rag_kjri}"]
       interval: 10s
@@ -65,7 +67,7 @@ services:
       CHROMA_SERVER_AUTH_CREDENTIALS_PROVIDER: ""
       CHROMA_SERVER_AUTH_PROVIDER: ""
     healthcheck:
-      test: ["CMD-SHELL", "(echo > /dev/tcp/localhost/8000) 2>/dev/null || exit 1"]
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:8000/api/v2/heartbeat 2>/dev/null || curl -sf http://localhost:8000/api/v2/heartbeat > /dev/null 2>&1 || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -85,11 +87,20 @@ services:
       LLM_MODEL: ${LLM_MODEL:-qwen2.5:0.5b}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       CHROMA_URL: http://chromadb:8000
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-rag_kjri}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
-      - toolbox
-      - chromadb
+      postgres:
+        condition: service_healthy
+      toolbox:
+        condition: service_started
+      chromadb:
+        condition: service_started
 
   telegram-bot:
     build:

@@ -1,0 +1,8 @@
+# Dependensi untuk skrip RAG lokal (upload / uji retrieval) di luar container agent.
+# Install: pip install -r requirements-rag.txt
+chromadb
+psycopg2-binary
+tiktoken
+pypdf
+python-dotenv
+google-genai
