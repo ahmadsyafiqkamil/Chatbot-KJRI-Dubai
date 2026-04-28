@@ -13,18 +13,28 @@ from .chunking import chunk_text
 from .embeddings import embed_text
 from .parsers import parse_file
 
+# Existing schema: documents(id, title, source, original_filename, content_text, file_size_bytes, tags)
 _INSERT_DOCUMENT = """
-    INSERT INTO documents (title, source_path, file_type, file_size_bytes, tags, status)
-    VALUES (%s, %s, %s, %s, %s, 'processed')
+    INSERT INTO documents (title, source, original_filename, content_text, file_size_bytes, tags)
+    VALUES (%s, %s, %s, %s, %s, %s)
     RETURNING id
 """
 
+# Existing schema: document_chunks(id, document_id, chunk_number, chunk_text, chunk_tokens)
 _INSERT_CHUNK = """
-    INSERT INTO document_chunks (document_id, chunk_index, content, token_count, metadata)
-    VALUES (%s, %s, %s, %s, %s)
+    INSERT INTO document_chunks (document_id, chunk_number, chunk_text, chunk_tokens)
+    VALUES (%s, %s, %s, %s)
 """
 
 _TOKENIZER = tiktoken.get_encoding("cl100k_base")
+
+# Map extension → value for documents.source CHECK constraint ('pdf','markdown','txt')
+_SOURCE_MAP = {
+    ".pdf": "pdf",
+    ".txt": "txt",
+    ".md": "markdown",
+    ".markdown": "markdown",
+}
 
 
 def _count_tokens(text: str) -> int:
@@ -53,11 +63,13 @@ class DocumentManager:
         if not p.exists():
             raise FileNotFoundError(f"File not found: {file_path}")
 
-        text = parse_file(p)  # raises ValueError for unsupported types
+        suffix = p.suffix.lower()
+        source = _SOURCE_MAP.get(suffix)
+        if source is None:
+            raise ValueError(f"Unsupported file type: '{suffix}'. Supported: .pdf, .txt, .md, .markdown")
+
+        text = parse_file(p)
         chunks = chunk_text(text)
-        file_type = p.suffix.lstrip(".").lower()
-        if file_type == "markdown":
-            file_type = "md"
         tags_json = json.dumps(tags or [])
         file_size = p.stat().st_size
 
@@ -67,7 +79,7 @@ class DocumentManager:
             with conn.cursor() as cur:
                 cur.execute(
                     _INSERT_DOCUMENT,
-                    (title, str(p), file_type, file_size, tags_json),
+                    (title, source, p.name, text, file_size, tags_json),
                 )
                 doc_id = str(cur.fetchone()[0])
 
@@ -75,17 +87,13 @@ class DocumentManager:
                 for idx, chunk_str in enumerate(chunks):
                     embedding = embed_text(chunk_str, api_key=self._api_key)
                     token_count = _count_tokens(chunk_str)
-                    metadata = {"document_id": doc_id, "chunk_index": idx}
 
-                    cur.execute(
-                        _INSERT_CHUNK,
-                        (doc_id, idx, chunk_str, token_count, json.dumps(metadata)),
-                    )
+                    cur.execute(_INSERT_CHUNK, (doc_id, idx, chunk_str, token_count))
                     chroma_chunks.append({
                         "id": f"{doc_id}_chunk_{idx}",
                         "content": chunk_str,
                         "embedding": embedding,
-                        "metadata": metadata,
+                        "metadata": {"document_id": doc_id, "chunk_index": idx},
                     })
 
             conn.commit()
