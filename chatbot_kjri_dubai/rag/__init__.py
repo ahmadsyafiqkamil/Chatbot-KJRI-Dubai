@@ -1,10 +1,11 @@
-"""Phase 1 RAG module — document ingestion pipeline."""
+"""RAG module — document ingestion (Phase 1) + retrieval pipeline (Phase 2)."""
 
 from .chromadb_client import ChromaDBClient
 from .chunking import chunk_text
 from .document_manager import DocumentManager
 from .embeddings import EmbeddingError, embed_text
 from .parsers import parse_file
+from .retrieval import Retriever
 
 __all__ = [
     "DocumentManager",
@@ -13,4 +14,5 @@ __all__ = [
     "embed_text",
     "EmbeddingError",
     "ChromaDBClient",
+    "Retriever",
 ]
