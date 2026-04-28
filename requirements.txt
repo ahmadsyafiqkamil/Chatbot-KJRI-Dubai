@@ -2,3 +2,4 @@ google-adk==1.26.0
 litellm==1.82.0
 toolbox-adk==0.5.8
 toolbox-core==0.5.8
+psycopg2-binary
