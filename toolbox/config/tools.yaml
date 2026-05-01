@@ -2,7 +2,7 @@
 # Konfigurasi tools untuk Chatbot KJRI Dubai
 
 # --- Data Source ---
-kind: sources
+kind: source
 name: kjri-db
 type: postgres
 host: postgres
@@ -14,7 +14,7 @@ password: ${POSTGRES_PASSWORD}
 ---
 
 # --- Embedding Model ---
-kind: embeddingModels
+kind: embeddingModel
 name: gemini-embedding
 type: gemini
 model: gemini-embedding-001
@@ -22,7 +22,7 @@ model: gemini-embedding-001
 ---
 
 # --- Tool 1: Cari layanan konsuler berdasarkan kata kunci ---
-kind: tools
+kind: tool
 name: cari-layanan
 type: postgres-sql
 source: kjri-db
@@ -46,7 +46,7 @@ parameters:
 ---
 
 # --- Tool 2: Ambil detail syarat dan biaya layanan tertentu ---
-kind: tools
+kind: tool
 name: get-detail-layanan
 type: postgres-sql
 source: kjri-db
@@ -70,7 +70,7 @@ parameters:
 ---
 
 # --- Tool 3: Cari layanan konsuler menggunakan semantic search ---
-kind: tools
+kind: tool
 name: cari-layanan-semantik
 type: postgres-sql
 source: kjri-db
@@ -96,7 +96,7 @@ parameters:
 ---
 
 # --- Tool 4: Simpan identitas pengguna ---
-kind: tools
+kind: tool
 name: simpan-identitas
 type: postgres-sql
 source: kjri-db
@@ -139,7 +139,7 @@ parameters:
 ---
 
 # --- Tool 5: Simpan data interaksi chatbot ---
-kind: tools
+kind: tool
 name: simpan-interaksi
 type: postgres-sql
 source: kjri-db
@@ -184,7 +184,7 @@ parameters:
 ---
 
 # --- Tool 5: Statistik penggunaan chatbot (admin) ---
-kind: tools
+kind: tool
 name: get-statistik-penggunaan
 type: postgres-sql
 source: kjri-db

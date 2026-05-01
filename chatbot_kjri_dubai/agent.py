@@ -1,45 +1,14 @@
 import json
 import os
-import re
 
 from google.adk.agents.llm_agent import Agent
 from google.adk.models import Gemini
 from google.adk.tools import FunctionTool
-from google.genai import types
 from toolbox_adk import ToolboxToolset
-from toolbox_adk.tool import ToolboxTool
 
 TOOLBOX_URL = os.environ.get("TOOLBOX_URL", "http://127.0.0.1:5000")
 LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "ollama")
 LLM_MODEL = os.environ.get("LLM_MODEL", "qwen2.5:0.5b")
-
-# --- Monkey-patch: ToolboxTool._get_declaration() returns None in toolbox-adk 0.5.8,
-#     which prevents Gemini native model from seeing function declarations.
-#     This patch parses the tool description to build a proper FunctionDeclaration.
-_TYPE_MAP = {"str": types.Type.STRING, "int": types.Type.INTEGER, "float": types.Type.NUMBER, "bool": types.Type.BOOLEAN}
-
-def _patched_get_declaration(self):
-    desc = self.description or ""
-    parts = desc.split("Args:")
-    main_desc = parts[0].strip()
-    properties = {}
-    if len(parts) > 1:
-        for match in re.finditer(r"(\w+)\s*\((\w+)\):\s*(.+)", parts[1]):
-            name, ptype, pdesc = match.groups()
-            properties[name] = types.Schema(
-                type=_TYPE_MAP.get(ptype, types.Type.STRING),
-                description=pdesc.strip(),
-            )
-    if not properties:
-        return None
-    return types.FunctionDeclaration(
-        name=self.name,
-        description=main_desc[:500],
-        parameters=types.Schema(type=types.Type.OBJECT, properties=properties),
-    )
-
-ToolboxTool._get_declaration = _patched_get_declaration
-# --- End monkey-patch ---
 
 if LLM_PROVIDER == "gemini":
     _model = Gemini(model=LLM_MODEL)
