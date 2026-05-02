@@ -34,6 +34,18 @@ toolbox = ToolboxToolset(
     ],
 )
 
+# Scoped per-agent toolboxes
+identity_toolbox = ToolboxToolset(TOOLBOX_URL, tool_names=["simpan-identitas"])
+lookup_toolbox = ToolboxToolset(
+    TOOLBOX_URL,
+    tool_names=[
+        "cari-layanan",
+        "get-detail-layanan",
+        "cari-layanan-semantik",
+        "simpan-interaksi",
+    ],
+)
+
 _rag_retriever = None
 
 

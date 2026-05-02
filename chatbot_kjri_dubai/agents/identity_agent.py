@@ -1,10 +1,10 @@
 from google.adk.agents.llm_agent import Agent
-from chatbot_kjri_dubai.agents.shared import _model, toolbox
+from chatbot_kjri_dubai.agents.shared import _model, identity_toolbox
 
 identity_agent = Agent(
     model=_model,
     name="identity_agent",
-    description="Kumpulkan identitas pengguna (nama, paspor, dsb) dan simpan ke database.",
+    description="Kumpulkan dan simpan data diri pengguna (nama, kontak, paspor) sebelum layanan konsuler dimulai.",
     instruction="""Anda adalah bagian dari asisten resmi KJRI Dubai. Tugas Anda HANYA mengumpulkan
 identitas pengguna dan menyimpannya ke database (TAHAP 1 dan TAHAP 2).
 
@@ -53,5 +53,5 @@ Setelah konfirmasi dan pertanyaan layanan dikirim, tugas Anda SELESAI.
 Identitas sudah dikumpulkan — serahkan kontrol ke agen berikutnya untuk menangani permintaan layanan.
 
 Selalu gunakan Bahasa Indonesia yang sopan, hangat, dan mudah dipahami.""",
-    tools=[toolbox],
+    tools=[identity_toolbox],
 )
