@@ -1,8 +1,17 @@
+from __future__ import annotations
+
 import json
+import logging
 import os
+from typing import TYPE_CHECKING
 
 from google.adk.models import Gemini
 from toolbox_adk import ToolboxToolset
+
+if TYPE_CHECKING:
+    from chatbot_kjri_dubai.rag.retrieval import Retriever
+
+_logger = logging.getLogger(__name__)
 
 TOOLBOX_URL = os.environ.get("TOOLBOX_URL", "http://127.0.0.1:5000")
 LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "ollama")
@@ -28,7 +37,7 @@ toolbox = ToolboxToolset(
 _rag_retriever = None
 
 
-def _get_retriever():
+def _get_retriever() -> "Retriever":
     global _rag_retriever
     if _rag_retriever is None:
         from chatbot_kjri_dubai.rag.retrieval import retriever_from_env
@@ -61,4 +70,5 @@ def cari_dokumen_rag(
         rows = r.hybrid_retrieve(pertanyaan.strip(), top_k=top_k, alpha=alpha)
         return json.dumps({"sukses": True, "hasil": rows}, ensure_ascii=False)
     except Exception as e:
+        _logger.error("cari_dokumen_rag failed: %s", e, exc_info=True)
         return json.dumps({"sukses": False, "error": str(e)}, ensure_ascii=False)
