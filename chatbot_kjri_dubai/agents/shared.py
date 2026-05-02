@@ -23,17 +23,6 @@ else:
     from google.adk.models.lite_llm import LiteLlm
     _model = LiteLlm(model=f"ollama_chat/{LLM_MODEL}")
 
-toolbox = ToolboxToolset(
-    TOOLBOX_URL,
-    tool_names=[
-        "cari-layanan",
-        "get-detail-layanan",
-        "cari-layanan-semantik",
-        "simpan-identitas",
-        "simpan-interaksi",
-    ],
-)
-
 # Scoped per-agent toolboxes
 identity_toolbox = ToolboxToolset(TOOLBOX_URL, tool_names=["simpan-identitas"])
 lookup_toolbox = ToolboxToolset(
