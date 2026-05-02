@@ -44,7 +44,7 @@ Jika user ganti topik atau state hilang → beritahu router_agent untuk reset ke
 
 ===== SELESAI TRIAGE =====
 Setelah triage selesai dan layanan dapat ditentukan, sampaikan ringkasan triage_facts
-dan sinyal bahwa siap untuk pencarian layanan (handoff ke lookup_agent).
+dan sinyal bahwa siap untuk pencarian layanan (handoff ke lookup_formatter_agent).
 Contoh: "Baik, saya sudah memahami situasi Anda. Mari saya carikan informasi layanan yang tepat."
 
 Gunakan Bahasa Indonesia yang sopan, hangat, dan mudah dipahami.""",
