@@ -780,3 +780,115 @@ class TestCheckAndResolveTimedOutHandoffs:
             count = await check_and_resolve_timed_out_handoffs(BOT_TOKEN, STAFF_GROUP_ID)
         assert mock_resolve.call_count == 1
         assert count == 1
+
+
+# ---------------------------------------------------------------------------
+# CRISIS_KEYWORDS — PMI / violence scenarios
+# ---------------------------------------------------------------------------
+
+class TestCrisisKeywords:
+    """Verify that PMI/violence crisis keywords trigger escalation.
+
+    These tests cover the conservative keyword set; adjust alongside CRISIS_KEYWORDS
+    in handoff.py when SOP changes.
+    """
+
+    def test_disiksa_triggers(self):
+        from chatbot_kjri_dubai.handoff import detect_escalation_trigger
+        assert detect_escalation_trigger("Saya disiksa oleh majikan saya") is True
+
+    def test_dipukul_triggers(self):
+        from chatbot_kjri_dubai.handoff import detect_escalation_trigger
+        assert detect_escalation_trigger("Saya dipukul setiap hari") is True
+
+    def test_dianiaya_triggers(self):
+        from chatbot_kjri_dubai.handoff import detect_escalation_trigger
+        assert detect_escalation_trigger("Saya dianiaya sejak bulan lalu") is True
+
+    def test_penyiksaan_triggers(self):
+        from chatbot_kjri_dubai.handoff import detect_escalation_trigger
+        assert detect_escalation_trigger("Ada penyiksaan di tempat kerja") is True
+
+    def test_disekap_triggers(self):
+        from chatbot_kjri_dubai.handoff import detect_escalation_trigger
+        assert detect_escalation_trigger("Saya disekap dan tidak boleh keluar") is True
+
+    def test_paspor_ditahan_triggers(self):
+        from chatbot_kjri_dubai.handoff import detect_escalation_trigger
+        assert detect_escalation_trigger("Paspor ditahan oleh majikan") is True
+
+    def test_dokumen_ditahan_triggers(self):
+        from chatbot_kjri_dubai.handoff import detect_escalation_trigger
+        assert detect_escalation_trigger("Semua dokumen ditahan, tidak bisa kemana-mana") is True
+
+    def test_diancam_triggers(self):
+        from chatbot_kjri_dubai.handoff import detect_escalation_trigger
+        assert detect_escalation_trigger("Saya diancam jika lapor ke polisi") is True
+
+    def test_tidak_dibayar_triggers(self):
+        from chatbot_kjri_dubai.handoff import detect_escalation_trigger
+        assert detect_escalation_trigger("Gaji saya tidak dibayar selama 3 bulan") is True
+
+    def test_gaji_tidak_dibayar_triggers(self):
+        from chatbot_kjri_dubai.handoff import detect_escalation_trigger
+        assert detect_escalation_trigger("gaji tidak dibayar sudah lama") is True
+
+    def test_kekerasan_fisik_triggers(self):
+        from chatbot_kjri_dubai.handoff import detect_escalation_trigger
+        assert detect_escalation_trigger("Terjadi kekerasan fisik di rumah majikan") is True
+
+    def test_terancam_triggers(self):
+        from chatbot_kjri_dubai.handoff import detect_escalation_trigger
+        assert detect_escalation_trigger("Nyawa saya terancam") is True
+
+    def test_case_insensitive_disiksa(self):
+        from chatbot_kjri_dubai.handoff import detect_escalation_trigger
+        assert detect_escalation_trigger("DISIKSA majikan jahat") is True
+
+    def test_normal_passport_question_no_trigger(self):
+        from chatbot_kjri_dubai.handoff import detect_escalation_trigger
+        # General question should not trigger crisis path
+        assert detect_escalation_trigger("Berapa biaya perpanjang paspor?") is False
+
+    def test_normal_salary_question_no_trigger(self):
+        from chatbot_kjri_dubai.handoff import detect_escalation_trigger
+        # Discussing salary in neutral context should not trigger
+        assert detect_escalation_trigger("Berapa gaji rata-rata TKI di Dubai?") is False
+
+
+# ---------------------------------------------------------------------------
+# can_create_bot_failure_handoff — cooldown / dedupe logic
+# ---------------------------------------------------------------------------
+
+class TestBotFailureCooldown:
+    def setup_method(self):
+        """Reset in-memory cooldown state before each test."""
+        import chatbot_kjri_dubai.handoff as hm
+        with hm._bot_failure_lock:
+            hm._bot_failure_ts.clear()
+
+    def test_first_call_returns_true(self):
+        from chatbot_kjri_dubai.handoff import can_create_bot_failure_handoff
+        assert can_create_bot_failure_handoff("session_abc") is True
+
+    def test_second_immediate_call_returns_false(self):
+        from chatbot_kjri_dubai.handoff import can_create_bot_failure_handoff
+        can_create_bot_failure_handoff("session_abc")
+        assert can_create_bot_failure_handoff("session_abc") is False
+
+    def test_different_sessions_are_independent(self):
+        from chatbot_kjri_dubai.handoff import can_create_bot_failure_handoff
+        assert can_create_bot_failure_handoff("session_1") is True
+        assert can_create_bot_failure_handoff("session_2") is True
+
+    def test_cooldown_zero_allows_repeated_calls(self, monkeypatch):
+        monkeypatch.setenv("HANDOFF_BOT_FAILURE_COOLDOWN_SEC", "0")
+        from chatbot_kjri_dubai.handoff import can_create_bot_failure_handoff
+        assert can_create_bot_failure_handoff("session_x") is True
+        assert can_create_bot_failure_handoff("session_x") is True
+
+    def test_records_timestamp_on_true(self):
+        import chatbot_kjri_dubai.handoff as hm
+        hm.can_create_bot_failure_handoff("session_ts")
+        with hm._bot_failure_lock:
+            assert "session_ts" in hm._bot_failure_ts

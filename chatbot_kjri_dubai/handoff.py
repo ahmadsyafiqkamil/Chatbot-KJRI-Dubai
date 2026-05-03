@@ -7,6 +7,8 @@ KJRI staff via a Telegram group. Staff can reply back to users via /reply.
 import logging
 import os
 import re
+import threading
+import time
 from typing import Optional
 
 import httpx
@@ -31,8 +33,26 @@ ESCALATION_KEYWORDS = [
     r"minta tolong manusia",
 ]
 
+# Kata kunci krisis kekerasan / situasi darurat pekerja migran (PMI/TKI).
+# Daftar ini bersifat konservatif — sesuaikan dengan SOP staf konsuler untuk mengurangi
+# false positive pada pertanyaan umum tentang kekerasan sebagai topik (bukan korban).
+CRISIS_KEYWORDS = [
+    r"disiksa",
+    r"dipukul",
+    r"dianiaya",
+    r"penyiksaan",
+    r"disekap",
+    r"paspor ditahan",
+    r"dokumen ditahan",
+    r"diancam",
+    r"tidak dibayar",
+    r"gaji tidak dibayar",
+    r"kekerasan fisik",
+    r"terancam",
+]
+
 _ESCALATION_PATTERN = re.compile(
-    "|".join(ESCALATION_KEYWORDS),
+    "|".join(ESCALATION_KEYWORDS + CRISIS_KEYWORDS),
     re.IGNORECASE,
 )
 
@@ -43,8 +63,32 @@ USER_CONFIRMATION_MSG = (
 
 
 def detect_escalation_trigger(text: str) -> bool:
-    """Return True if text contains any escalation keyword."""
+    """Return True if text contains any escalation keyword (including crisis keywords)."""
     return bool(_ESCALATION_PATTERN.search(text))
+
+
+# ---------------------------------------------------------------------------
+# Bot-failure handoff cooldown (dedupe duplicate tickets per session)
+# ---------------------------------------------------------------------------
+
+_bot_failure_ts: dict[str, float] = {}
+_bot_failure_lock = threading.Lock()
+
+
+def can_create_bot_failure_handoff(session_id: str) -> bool:
+    """Return True and record timestamp if cooldown has expired for this session.
+
+    Cooldown duration is controlled by HANDOFF_BOT_FAILURE_COOLDOWN_SEC (default 300s).
+    This prevents duplicate 'bot failure' tickets from flooding the handoff queue.
+    """
+    cooldown = int(os.environ.get("HANDOFF_BOT_FAILURE_COOLDOWN_SEC", "300"))
+    now = time.monotonic()
+    with _bot_failure_lock:
+        last_ts = _bot_failure_ts.get(session_id, 0.0)
+        if now - last_ts >= cooldown:
+            _bot_failure_ts[session_id] = now
+            return True
+    return False
 
 
 def is_from_staff_group(chat_id: str, staff_group_id: str) -> bool:

@@ -13,6 +13,7 @@ from google.genai import types
 from chatbot_kjri_dubai.agent import root_agent
 from chatbot_kjri_dubai.markdown_converter import md_to_html
 from chatbot_kjri_dubai.handoff import (
+    can_create_bot_failure_handoff,
     check_and_resolve_timed_out_handoffs,
     detect_escalation_trigger,
     forward_user_message_to_staff,
@@ -36,6 +37,10 @@ KJRI_STAFF_GROUP_ID = os.environ.get("KJRI_STAFF_TELEGRAM_GROUP_ID", "")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Mask token in logs — show only first 10 chars so logs are safe to share.
+_token_prefix = (TELEGRAM_BOT_TOKEN[:10] + "***") if len(TELEGRAM_BOT_TOKEN) > 10 else "***"
+logger.info("Telegram bot initialising. Token prefix: %s", _token_prefix)
 
 session_service = InMemorySessionService()
 runner = Runner(
@@ -142,11 +147,87 @@ async def health():
     return {"status": "ok"}
 
 
+async def _trigger_bot_failure_handoff(
+    chat_id: int,
+    session_id: str,
+    user_text: str,
+) -> None:
+    """Escalate to human staff when the bot fails to produce a response.
+
+    Deduplication strategy:
+    - If session already has an active handoff: send a short "already queued" message, no new ticket.
+    - If cooldown (HANDOFF_BOT_FAILURE_COOLDOWN_SEC) has not expired: same short message, no new ticket.
+    - Otherwise: create a new handoff ticket, notify staff (if group ID configured), confirm to user.
+    """
+    if has_active_handoff(session_id):
+        logger.info(
+            "Bot-failure handoff skipped (active handoff exists) for session=%s", session_id
+        )
+        await send_message(
+            chat_id,
+            "Permintaan Anda sedang dalam antrean petugas. Mohon tunggu balasan staf kami.",
+        )
+        return
+
+    if not can_create_bot_failure_handoff(session_id):
+        logger.info(
+            "Bot-failure handoff skipped (cooldown active) for session=%s", session_id
+        )
+        await send_message(
+            chat_id,
+            "Maaf, sistem sedang mengalami kendala. Permintaan Anda sudah dalam antrean petugas.",
+        )
+        return
+
+    try:
+        handoff_id = save_handoff_to_db(
+            session_id=session_id,
+            user_chat_id=chat_id,
+            pengguna_id=None,
+            nama_user=None,
+            pertanyaan_terakhir=user_text,
+            layanan_dicari=None,
+        )
+        logger.info(
+            "Bot-failure handoff created id=%s for session=%s", handoff_id, session_id
+        )
+        if KJRI_STAFF_GROUP_ID:
+            await send_staff_notification(
+                bot_token=TELEGRAM_BOT_TOKEN,
+                staff_group_id=KJRI_STAFF_GROUP_ID,
+                handoff_id=handoff_id,
+                session_id=session_id,
+                nama_user=str(chat_id),
+                pertanyaan_terakhir=f"[BOT FAILURE] {user_text}",
+            )
+        else:
+            logger.warning(
+                "KJRI_STAFF_TELEGRAM_GROUP_ID not set; skipping staff notification for bot failure"
+            )
+    except Exception:
+        logger.exception(
+            "Bot-failure handoff save/notify failed for chat_id=%s session=%s",
+            chat_id, session_id,
+        )
+    await send_message(chat_id, USER_CONFIRMATION_MSG)
+
+
 @app.post("/webhook")
 async def webhook(request: Request):
     data = await request.json()
+    logger.info("Webhook received: update_id=%s", data.get("update_id"))
+
     message = data.get("message")
-    if not message or not message.get("text"):
+    if not message:
+        logger.info("Webhook: no 'message' field in update, skipping")
+        return {"ok": True}
+
+    if not message.get("text"):
+        logger.info(
+            "Webhook: message from chat_id=%s has no text (type=%s), skipping",
+            message.get("chat", {}).get("id"),
+            list(message.keys()),
+        )
         return {"ok": True}
 
     chat_id = message["chat"]["id"]
@@ -154,11 +235,18 @@ async def webhook(request: Request):
     user_id = str(chat_id)
     session_id = f"telegram_{chat_id}"
 
+    logger.info(
+        "Webhook: chat_id=%s session_id=%s text=%r",
+        chat_id, session_id, user_text[:80],
+    )
+
     # ---------------------------------------------------------------------------
     # Staff commands — only accepted from KJRI_STAFF_GROUP_ID
     # ---------------------------------------------------------------------------
     if user_text.startswith("/reply ") or user_text.startswith("/resolve "):
+        logger.info("Webhook: detected staff command from chat_id=%s", chat_id)
         if not is_from_staff_group(str(chat_id), KJRI_STAFF_GROUP_ID):
+            logger.warning("Webhook: staff command from non-staff chat_id=%s, ignoring", chat_id)
             return {"ok": True}
 
         if user_text.startswith("/reply "):
@@ -172,6 +260,7 @@ async def webhook(request: Request):
                 await send_message(chat_id, f"Session <code>{target_session_id}</code> tidak ditemukan.")
                 return {"ok": True}
             set_handoff_in_progress_by_session(target_session_id)
+            logger.info("Webhook: /reply to session=%s chat_id=%s", target_session_id, target_chat_id)
             try:
                 await handle_staff_reply(
                     bot_token=TELEGRAM_BOT_TOKEN,
@@ -184,8 +273,10 @@ async def webhook(request: Request):
         elif user_text.startswith("/resolve "):
             target_session_id = user_text[len("/resolve "):].strip()
             target_chat_id = get_user_chat_id_by_session(target_session_id)
+            logger.info("Webhook: /resolve session=%s", target_session_id)
             resolved = resolve_handoff_by_session(target_session_id)
             if resolved:
+                logger.info("Webhook: handoff resolved for session=%s", target_session_id)
                 if target_chat_id:
                     try:
                         await handle_staff_reply(
@@ -197,6 +288,7 @@ async def webhook(request: Request):
                         logger.exception("Failed to notify user on resolve for session=%s", target_session_id)
                 await send_message(chat_id, f"Sesi <code>{target_session_id}</code> berhasil di-resolve. Bot aktif kembali untuk user.")
             else:
+                logger.warning("Webhook: no active handoff found for session=%s", target_session_id)
                 await send_message(chat_id, f"Tidak ada handoff aktif untuk sesi <code>{target_session_id}</code>.")
 
         return {"ok": True}
@@ -210,8 +302,12 @@ async def webhook(request: Request):
     # ---------------------------------------------------------------------------
     # Guard: session already in handoff queue — forward ke staf, bot diam
     # ---------------------------------------------------------------------------
-    if has_active_handoff(session_id):
+    active_handoff = has_active_handoff(session_id)
+    logger.info("Webhook: has_active_handoff(%s) = %s", session_id, active_handoff)
+
+    if active_handoff:
         update_handoff_activity(session_id)
+        logger.info("Webhook: forwarding user message to staff for session=%s", session_id)
         if KJRI_STAFF_GROUP_ID:
             try:
                 await forward_user_message_to_staff(
@@ -228,7 +324,10 @@ async def webhook(request: Request):
     # ---------------------------------------------------------------------------
     # Escalation trigger detection — intercept before agent
     # ---------------------------------------------------------------------------
-    if detect_escalation_trigger(user_text):
+    escalation = detect_escalation_trigger(user_text)
+    logger.info("Webhook: detect_escalation_trigger = %s for session=%s", escalation, session_id)
+
+    if escalation:
         try:
             handoff_id = save_handoff_to_db(
                 session_id=session_id,
@@ -238,6 +337,7 @@ async def webhook(request: Request):
                 pertanyaan_terakhir=user_text,
                 layanan_dicari=None,
             )
+            logger.info("Webhook: handoff created id=%s for session=%s", handoff_id, session_id)
             if KJRI_STAFF_GROUP_ID:
                 await send_staff_notification(
                     bot_token=TELEGRAM_BOT_TOKEN,
@@ -255,8 +355,9 @@ async def webhook(request: Request):
         return {"ok": True}
 
     # ---------------------------------------------------------------------------
-    # Normal agent flow (TAHAP 1–4 unchanged)
+    # Normal agent flow (TAHAP 1–4)
     # ---------------------------------------------------------------------------
+    logger.info("Webhook: running agent for session=%s text=%r", session_id, user_text[:80])
 
     # Get or create session
     session = await session_service.get_session(
@@ -265,15 +366,18 @@ async def webhook(request: Request):
         session_id=session_id,
     )
     if session is None:
+        logger.info("Webhook: creating new session for session_id=%s", session_id)
         session = await session_service.create_session(
             app_name="kjri_dubai_telegram",
             user_id=user_id,
             session_id=session_id,
         )
+    else:
+        logger.info("Webhook: existing session found for session_id=%s", session_id)
 
     # Run agent and collect final response
     content = types.Content(parts=[types.Part(text=user_text)], role="user")
-    response_text = ""
+    response_parts: list[str] = []
 
     try:
         async for event in runner.run_async(
@@ -281,22 +385,57 @@ async def webhook(request: Request):
             session_id=session.id,
             new_message=content,
         ):
-            if (
-                event.content
-                and event.content.parts
-                and event.author == root_agent.name
-            ):
-                for part in event.content.parts:
-                    if hasattr(part, "text") and part.text:
-                        response_text = part.text
+            author = getattr(event, "author", "?")
+            is_final = event.is_final_response()
+            logger.debug(
+                "Webhook: event author=%s is_final=%s has_content=%s",
+                author,
+                is_final,
+                bool(event.content),
+            )
+            if is_final:
+                if not event.content or not event.content.parts:
+                    logger.warning(
+                        "Webhook: final_response has no content/parts — "
+                        "author=%s session=%s",
+                        author, session_id,
+                    )
+                else:
+                    for part in event.content.parts:
+                        if hasattr(part, "text") and part.text:
+                            logger.info(
+                                "Webhook: final response part from author=%s text=%r",
+                                author,
+                                part.text[:100],
+                            )
+                            response_parts.append(part.text)
+                        else:
+                            part_type = type(part).__name__
+                            logger.warning(
+                                "Webhook: final_response part has no text — "
+                                "author=%s part_type=%s session=%s",
+                                author, part_type, session_id,
+                            )
     except Exception:
-        logger.exception("Error running agent for chat_id=%s", chat_id)
-        response_text = (
-            "Maaf, terjadi kesalahan pada sistem. Silakan coba lagi nanti."
-        )
+        logger.exception("Error running agent for chat_id=%s session=%s", chat_id, session_id)
+        await _trigger_bot_failure_handoff(chat_id, session_id, user_text)
+        return {"ok": True}
+
+    response_text = "\n".join(response_parts).strip()
+    logger.info(
+        "Webhook: agent done for session=%s, response_text length=%d",
+        session_id, len(response_text),
+    )
 
     if response_text:
         await send_message(chat_id, response_text)
+    else:
+        logger.warning(
+            "Webhook: agent produced no text response for session=%s text=%r — "
+            "triggering bot-failure handoff",
+            session_id, user_text[:80],
+        )
+        await _trigger_bot_failure_handoff(chat_id, session_id, user_text)
 
     return {"ok": True}
 
