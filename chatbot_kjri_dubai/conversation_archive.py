@@ -4,7 +4,6 @@ import json
 import logging
 import os
 import re
-from datetime import datetime, timezone
 from typing import Optional
 
 import psycopg2
@@ -48,6 +47,7 @@ def detect_gratitude_closure(text: str) -> Optional[str]:
 # ---------------------------------------------------------------------------
 # Database helpers
 # ---------------------------------------------------------------------------
+
 
 def _get_conn_string() -> str:
     db_url = os.environ.get("DATABASE_URL")
@@ -99,7 +99,10 @@ def save_conversation_archive(
             conn.commit()
         logger.info(
             "Conversation archive saved: id=%s session=%s on=%s messages=%d",
-            archive_id, session_id, on, len(transcript_messages),
+            archive_id,
+            session_id,
+            on,
+            len(transcript_messages),
         )
         return archive_id
     except Exception:
