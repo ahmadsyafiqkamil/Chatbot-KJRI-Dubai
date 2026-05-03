@@ -28,6 +28,7 @@ T4 (jika pernikahan): "Pernikahan dilakukan di Dubai atau di Indonesia?"
 T1: "Dokumen apa yang perlu dilegalisasi atau disahkan?"
 T2: "Dokumen ini akan digunakan di negara mana?"
 T3: "Apakah dokumen juga perlu diterjemahkan?"
+T4: "Apakah ini pertama kali Anda menggunakan layanan legalisasi KJRI Dubai?"
 
 ===== TRIAGE DARURAT =====
 T1: "Situasi darurat apa yang sedang Anda hadapi?"
@@ -40,7 +41,8 @@ Selama triage, pertahankan:
 - triage_q_count (jumlah pertanyaan sudah ditanya, maks 4)
 - triage_facts (kumpulan jawaban user)
 
-Jika user ganti topik atau state hilang → beritahu router_agent untuk reset ke deteksi domain.
+Jika user ganti topik atau state hilang → serahkan kontrol ke root_agent dengan pesan:
+"Topik berubah — perlu deteksi domain ulang." Root_agent akan menangani routing selanjutnya.
 
 ===== SELESAI TRIAGE =====
 Setelah triage selesai dan layanan dapat ditentukan, sampaikan ringkasan triage_facts

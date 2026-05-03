@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 from typing import TYPE_CHECKING
 
 from google.adk.models import Gemini
@@ -16,6 +17,9 @@ _logger = logging.getLogger(__name__)
 TOOLBOX_URL = os.environ.get("TOOLBOX_URL", "http://127.0.0.1:5000")
 LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "ollama")
 LLM_MODEL = os.environ.get("LLM_MODEL", "qwen2.5:0.5b")
+
+# Set env var CHANNEL=telegram untuk deployment Telegram; default "web" untuk ADK web UI.
+CHANNEL = os.environ.get("CHANNEL", "web")
 
 if LLM_PROVIDER == "gemini":
     _model = Gemini(model=LLM_MODEL)
@@ -35,14 +39,18 @@ lookup_toolbox = ToolboxToolset(
     ],
 )
 
-_rag_retriever = None
+_rag_retriever: "Retriever | None" = None
+_rag_lock = threading.Lock()
 
 
 def _get_retriever() -> "Retriever":
+    """Lazy singleton dengan double-checked locking — aman untuk async/concurrent sessions."""
     global _rag_retriever
     if _rag_retriever is None:
-        from chatbot_kjri_dubai.rag.retrieval import retriever_from_env
-        _rag_retriever = retriever_from_env()
+        with _rag_lock:
+            if _rag_retriever is None:
+                from chatbot_kjri_dubai.rag.retrieval import retriever_from_env
+                _rag_retriever = retriever_from_env()
     return _rag_retriever
 
 

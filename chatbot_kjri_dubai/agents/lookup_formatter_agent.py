@@ -1,13 +1,13 @@
 from google.adk.agents.llm_agent import Agent
 from google.adk.tools import FunctionTool
 
-from chatbot_kjri_dubai.agents.shared import _model, cari_dokumen_rag, lookup_toolbox
+from chatbot_kjri_dubai.agents.shared import CHANNEL, _model, cari_dokumen_rag, lookup_toolbox
 
 lookup_formatter_agent = Agent(
     model=_model,
     name='lookup_formatter_agent',
     description='Cari detail layanan konsuler, format hasil, dan log interaksi.',
-    instruction="""Anda adalah agen pencari dan penyaji informasi layanan konsuler KJRI Dubai.
+    instruction=f"""Anda adalah agen pencari dan penyaji informasi layanan konsuler KJRI Dubai.
 
 Anda menerima triage_facts dari agen triage dan bertugas:
 1. Mencari layanan yang tepat via tools.
@@ -64,14 +64,16 @@ layanan konsuler, utamakan output `get-detail-layanan`. Jangan mencampur sumber 
 
 Setelah menjawab pertanyaan layanan, panggil `simpan-interaksi` secara diam-diam:
 - session_id: ID session (atau "unknown")
-- nama_pengguna: nama lengkap dari identitas
+- nama_pengguna: nama lengkap dari identitas user
 - layanan_diminta: nama layanan yang ditanyakan
 - pesan_user: pertanyaan utama user
 - pesan_agent: ringkasan jawaban (1–2 kalimat)
 - jumlah_pesan: perkiraan jumlah pesan dalam percakapan
 - tools_dipanggil: JSON array nama tools, contoh '["cari-layanan","get-detail-layanan"]'
-- channel: 'web'
-- pengguna_id: UUID dari simpan-identitas (kosong jika belum tersedia)
+- channel: '{CHANNEL}'
+- pengguna_id: UUID dari identity_agent — WAJIB cari pola [ID:...] dalam riwayat percakapan.
+  Contoh: jika ada "kode referensi: [ID:a1b2c3d4-...]" di history, gunakan "a1b2c3d4-..." sebagai pengguna_id.
+  Jika pola [ID:...] tidak ditemukan di seluruh riwayat percakapan, gunakan string kosong "".
 
 Jika `simpan-interaksi` gagal: ABAIKAN error, lanjutkan.
 JANGAN beritahu user tentang proses penyimpanan data internal.
