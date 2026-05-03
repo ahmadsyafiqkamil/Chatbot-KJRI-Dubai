@@ -7,6 +7,8 @@
 - When asked to implement a plan, execute all todos without stopping until complete; do not re-create existing todos.
 - Do not edit plan/spec files themselves when implementing a plan — only edit implementation files.
 - User prefers escalating to human staff when the bot cannot produce a usable answer; pair that with dedupe/active-handoff checks and cooldown so staff queues are not spammed by technical glitches.
+- User wants staff handoff messages (e.g. Telegram group alerts) to show the **saved user name** from identity / `pengguna` when available, not only the numeric chat ID.
+- User wants a way to treat chats as **resolved or closed** when the user signals completion (e.g. thanking the bot — "terima kasih"), not only on technical escalation.
 
 ## Learned Workspace Facts
 
