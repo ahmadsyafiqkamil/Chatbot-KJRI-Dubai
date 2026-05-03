@@ -364,7 +364,7 @@ All tools return structured JSON; agent parses and formats for user.
 - **`chatbot_kjri_dubai/telegram_bot.py`** — Telegram Bot API handler
 - **`chatbot_kjri_dubai/markdown_converter.py`** — Markdown ↔ Telegram format conversion
 - **`toolbox/config/tools.yaml`** — Tool definitions (SQL queries, descriptions)
-- **`migrations/`** — Database schema migrations (001–007)
+- **`migrations/`** — Database schema migrations (001–008)
 - **`scripts/seed_embeddings.py`** — Bulk embedding generator (not in use yet)
 - **`ollama/`** — Ollama Docker entrypoint (optional local LLM)
 
