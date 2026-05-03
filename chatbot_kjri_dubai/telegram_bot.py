@@ -505,8 +505,9 @@ async def webhook(request: Request):
     )
 
     if closure_reason:
-        # Append the farewell message to buffer before archiving
+        # Append farewell + bot reply to buffer before archiving
         _append_turn(session_id, "user", user_text)
+        _append_turn(session_id, "assistant", _CLOSURE_REPLY)
         turns = _get_and_clear_buffer(session_id)
 
         pengguna_id, _ = get_latest_pengguna_for_session(session_id)

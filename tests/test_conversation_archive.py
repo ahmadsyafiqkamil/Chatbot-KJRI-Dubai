@@ -1,4 +1,8 @@
 """Tests for conversation_archive module."""
+import json
+import uuid
+from unittest.mock import MagicMock, patch
+
 import pytest
 from chatbot_kjri_dubai.conversation_archive import detect_gratitude_closure
 
@@ -78,11 +82,6 @@ def test_detect_gratitude_closure_continuation(text):
 def test_detect_gratitude_closure_question_mark(text):
     result = detect_gratitude_closure(text)
     assert result is None, f"Expected None (has '?') for: {text!r}"
-
-
-import json
-import uuid
-from unittest.mock import MagicMock, patch
 
 
 FAKE_ARCHIVE_ID = str(uuid.uuid4())
