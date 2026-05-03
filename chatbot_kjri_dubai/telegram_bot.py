@@ -495,6 +495,32 @@ async def webhook(request: Request):
         return {"ok": True}
 
     # ---------------------------------------------------------------------------
+    # Closure detection — archive transcript if user says goodbye/thank you
+    # ---------------------------------------------------------------------------
+    closure_reason = detect_gratitude_closure(user_text)
+    logger.info(
+        "Webhook: detect_gratitude_closure = %s for session=%s",
+        closure_reason,
+        session_id,
+    )
+
+    if closure_reason:
+        # Append the farewell message to buffer before archiving
+        _append_turn(session_id, "user", user_text)
+        turns = _get_and_clear_buffer(session_id)
+
+        pengguna_id, _ = get_latest_pengguna_for_session(session_id)
+        save_conversation_archive(
+            session_id=session_id,
+            channel="telegram",
+            on=closure_reason,
+            transcript_messages=turns,
+            pengguna_id=pengguna_id,
+        )
+        await send_message(chat_id, _CLOSURE_REPLY)
+        return {"ok": True}
+
+    # ---------------------------------------------------------------------------
     # Normal agent flow (TAHAP 1–4)
     # ---------------------------------------------------------------------------
     logger.info("Webhook: running agent for session=%s text=%r", session_id, user_text[:80])
