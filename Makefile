@@ -16,6 +16,8 @@ help:
 	@echo "  make telegram-logs - Stream Telegram bot logs"
 	@echo "  make telegram-restart - Rebuild and restart Telegram bot"
 	@echo ""
+	@echo "Note: GEMINI_API_KEY harus ada di .env — layanan-embedding-seed mengisi pgvector untuk"
+	@echo "       cari-layanan-semantik sebelum toolbox/agent/telegram-bot start."
 
 start:
 	@chmod +x start.sh && ./start.sh

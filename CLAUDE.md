@@ -20,6 +20,9 @@ cp .env.example .env
 docker compose up -d
 ```
 
+**`GEMINI_API_KEY` is mandatory for `docker compose up`**: the `layanan-embedding-seed` one-shot container runs `scripts/seed_embeddings.py` after Postgres is healthy and fills `layanan_konsuler.embedding`; `toolbox`, `agent`, and `telegram-bot` wait until it completes successfully (`service_completed_successfully`). If embedding fails or the key is unset, Compose reports an error — avoiding “silent broken” `cari-layanan-semantik`. Optional: set `SEED_EMBEDDINGS_SKIP_IF_FULL=1` in `.env` to skip Gemini calls when every row already has an embedding (still requires `GEMINI_API_KEY` in the file for Compose variable substitution).
+
+
 ### Running
 ```bash
 # Start all services (PostgreSQL, Toolbox, pgAdmin, ChromaDB, Agent, Telegram, Ngrok)
@@ -90,6 +93,7 @@ ChromaDB (port 8001)
 | `telegram-bot` | 8080 | Telegram Bot API handler | `Dockerfile.telegram` |
 | `toolbox` | 5001 | MCP SQL tool provider | `toolbox/config/tools.yaml` |
 | `postgres` | 5432 | Primary database (pgvector) | `rag_kjri_dubai.sql` + `migrations/` |
+| `layanan-embedding-seed` | — | One-shot: Gemini embeddings for `layanan_konsuler` | `Dockerfile.embedding-seed`, `scripts/seed_embeddings.py` |
 | `chromadb` | 8001 | Vector store (future RAG) | `docker-compose.yml` |
 | `pgadmin` | 5050 | Database UI (admin) | `docker-compose.yml` |
 | `ngrok` | 4040 | Public tunnel (Telegram webhook) | `.env` (NGROK_AUTHTOKEN) |
@@ -238,8 +242,8 @@ Located in `migrations/`:
 - `007_handoff_last_activity.sql` — Add `last_activity_at` column to `handoff_queue` (inactivity timeout)
 - `008_conversation_archives.sql` — Conversation closure archives: `conversation_archives` table (`session_id`, `channel`, `"on"` closure reason code, `transcript` JSONB, `pengguna_id` FK)
 
-Migrations 001-002 mounted as Docker init scripts (`02_`, `03_`); auto-run on fresh database.
-For existing databases, apply manually:
+All migrations (001–008) mounted as Docker init scripts (`02_` through `09_`); auto-run on fresh database in order.
+For existing databases (already have data), apply missing migrations manually:
 ```bash
 docker exec -i kjri_postgres psql -U postgres -d rag_kjri < migrations/006_handoff_queue.sql
 docker exec -i kjri_postgres psql -U postgres -d rag_kjri < migrations/007_handoff_last_activity.sql
@@ -365,7 +369,7 @@ All tools return structured JSON; agent parses and formats for user.
 - **`chatbot_kjri_dubai/markdown_converter.py`** — Markdown ↔ Telegram format conversion
 - **`toolbox/config/tools.yaml`** — Tool definitions (SQL queries, descriptions)
 - **`migrations/`** — Database schema migrations (001–008)
-- **`scripts/seed_embeddings.py`** — Bulk embedding generator (not in use yet)
+- **`scripts/seed_embeddings.py`** — Embeds rows in `layanan_konsuler` for `cari-layanan-semantik`; invoked automatically via `layanan-embedding-seed` in `docker-compose.yml` (manual run still supported for debugging)
 - **`ollama/`** — Ollama Docker entrypoint (optional local LLM)
 
 ## Development Notes

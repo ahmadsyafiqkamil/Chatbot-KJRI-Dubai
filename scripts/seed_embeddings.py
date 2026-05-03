@@ -3,11 +3,18 @@
 seed_embeddings.py — Generate and store vector embeddings for layanan_konsuler.
 
 Embeds a combined text of nama_pelayanan + syarat (wajib + kondisional) per row
-using Google text-embedding-004 (RETRIEVAL_DOCUMENT task type), then stores the
-result in the embedding column.
+using Gemini gemini-embedding-001 (RETRIEVAL_DOCUMENT task type), then stores
+the result in the embedding column.
 
 Requirements:
-    pip install psycopg2-binary google-generativeai python-dotenv
+    pip install psycopg2-binary google-genai python-dotenv
+
+Environment:
+    GEMINI_API_KEY — required before calling the API (skipped if early exit via
+        SEED_EMBEDDINGS_SKIP_IF_FULL when every row already has an embedding).
+    SEED_EMBEDDINGS_SKIP_IF_FULL — if truthy ("1", "true", "yes"): if all rows
+        in layanan_konsuler already have embedding IS NOT NULL, exit 0 without
+        API calls.
 
 Usage:
     python scripts/seed_embeddings.py
@@ -15,6 +22,7 @@ Usage:
 
 import json
 import os
+import sys
 import time
 
 import psycopg2
@@ -24,7 +32,6 @@ from google.genai import types
 
 load_dotenv()
 
-GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 POSTGRES_HOST = os.environ.get("POSTGRES_HOST", "localhost")
 POSTGRES_PORT = os.environ.get("POSTGRES_PORT", "5432")
 POSTGRES_USER = os.environ.get("POSTGRES_USER", "postgres")
@@ -33,6 +40,11 @@ POSTGRES_DB = os.environ.get("POSTGRES_DB", "rag_kjri")
 
 EMBEDDING_MODEL = "gemini-embedding-001"
 BATCH_DELAY = 0.5  # seconds between API calls to avoid rate limiting
+
+
+def truthy_env(name: str) -> bool:
+    v = os.environ.get(name, "").strip().lower()
+    return v in ("1", "true", "yes", "on")
 
 
 def build_text(row: dict) -> str:
@@ -55,19 +67,16 @@ def build_text(row: dict) -> str:
 
 
 def embed_text(client: genai.Client, text: str) -> list[float]:
-    """Embed a single text string using Gemini text-embedding-004."""
+    """Embed a single text string using Gemini."""
     result = client.models.embed_content(
         model=EMBEDDING_MODEL,
         contents=text,
         config=types.EmbedContentConfig(task_type="RETRIEVAL_DOCUMENT"),
-        # gemini-embedding-001 default: 3072 dims
     )
     return result.embeddings[0].values
 
 
 def main():
-    client = genai.Client(api_key=GEMINI_API_KEY)
-
     conn = psycopg2.connect(
         host=POSTGRES_HOST,
         port=POSTGRES_PORT,
@@ -77,11 +86,41 @@ def main():
     )
     cur = conn.cursor()
 
+    if truthy_env("SEED_EMBEDDINGS_SKIP_IF_FULL"):
+        cur.execute("SELECT COUNT(*) FROM layanan_konsuler")
+        (total,) = cur.fetchone()
+        cur.execute(
+            "SELECT COUNT(*) FROM layanan_konsuler WHERE embedding IS NOT NULL"
+        )
+        (with_emb,) = cur.fetchone()
+        if total > 0 and total == with_emb:
+            cur.close()
+            conn.close()
+            print(
+                f"SEED_EMBEDDINGS_SKIP_IF_FULL: all {total} rows already embedded — skipping API."
+            )
+            sys.exit(0)
+
+    gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if not gemini_key:
+        cur.close()
+        conn.close()
+        print("GEMINI_API_KEY is required unless SEED_EMBEDDINGS_SKIP_IF_FULL skips all work.", file=sys.stderr)
+        sys.exit(1)
+
+    client = genai.Client(api_key=gemini_key)
+
     cur.execute(
         "SELECT id, kode_pelayanan, nama_pelayanan, syarat FROM layanan_konsuler ORDER BY id"
     )
     rows = cur.fetchall()
     print(f"Found {len(rows)} rows to embed.")
+
+    if not rows:
+        cur.close()
+        conn.close()
+        print("No rows in layanan_konsuler — nothing to do.")
+        sys.exit(0)
 
     success = 0
     for row_id, kode, nama, syarat in rows:
@@ -107,6 +146,9 @@ def main():
     cur.close()
     conn.close()
     print(f"\nDone. {success}/{len(rows)} rows embedded.")
+
+    if success != len(rows):
+        sys.exit(1)
 
 
 if __name__ == "__main__":

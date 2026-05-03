@@ -1,0 +1,12 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir \
+    psycopg2-binary \
+    google-genai \
+    python-dotenv
+
+COPY scripts/seed_embeddings.py /app/scripts/seed_embeddings.py
+
+ENTRYPOINT ["python", "/app/scripts/seed_embeddings.py"]

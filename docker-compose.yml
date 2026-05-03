@@ -17,11 +17,32 @@ services:
       - ./migrations/003_rag_phase0.sql:/docker-entrypoint-initdb.d/04_rag_phase0.sql:ro
       - ./migrations/004_documents_phase1.sql:/docker-entrypoint-initdb.d/05_documents_phase1.sql:ro
       - ./migrations/005_retrieval_fts.sql:/docker-entrypoint-initdb.d/06_retrieval_fts.sql:ro
+      - ./migrations/006_handoff_queue.sql:/docker-entrypoint-initdb.d/07_handoff_queue.sql:ro
+      - ./migrations/007_handoff_last_activity.sql:/docker-entrypoint-initdb.d/08_handoff_last_activity.sql:ro
+      - ./migrations/008_conversation_archives.sql:/docker-entrypoint-initdb.d/09_conversation_archives.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-rag_kjri}"]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  layanan-embedding-seed:
+    build:
+      context: .
+      dockerfile: Dockerfile.embedding-seed
+    container_name: kjri_layanan_embedding_seed
+    restart: "no"
+    environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY:?Set GEMINI_API_KEY in .env for layanan konsuler semantic search}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-rag_kjri}
+      SEED_EMBEDDINGS_SKIP_IF_FULL: ${SEED_EMBEDDINGS_SKIP_IF_FULL:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   toolbox:
     image: us-central1-docker.pkg.dev/database-toolbox/toolbox/toolbox:1.1.0
@@ -41,6 +62,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      layanan-embedding-seed:
+        condition: service_completed_successfully
 
   pgadmin:
     image: dpage/pgadmin4:latest
@@ -97,6 +120,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      layanan-embedding-seed:
+        condition: service_completed_successfully
       toolbox:
         condition: service_started
       chromadb:
@@ -130,6 +155,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      layanan-embedding-seed:
+        condition: service_completed_successfully
       toolbox:
         condition: service_started
 
