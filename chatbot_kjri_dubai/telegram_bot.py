@@ -12,6 +12,13 @@ from google.genai import types
 
 from chatbot_kjri_dubai.agent import root_agent
 from chatbot_kjri_dubai.markdown_converter import md_to_html
+import threading
+from datetime import datetime, timezone
+
+from chatbot_kjri_dubai.conversation_archive import (
+    detect_gratitude_closure,
+    save_conversation_archive,
+)
 from chatbot_kjri_dubai.handoff import (
     can_create_bot_failure_handoff,
     check_and_resolve_timed_out_handoffs,
@@ -52,6 +59,37 @@ _AGENT_EMPTY_REPLY_NUDGE = (
 # Mask token in logs — show only first 10 chars so logs are safe to share.
 _token_prefix = (TELEGRAM_BOT_TOKEN[:10] + "***") if len(TELEGRAM_BOT_TOKEN) > 10 else "***"
 logger.info("Telegram bot initialising. Token prefix: %s", _token_prefix)
+
+# ---------------------------------------------------------------------------
+# Per-session transcript buffer (for conversation archives)
+# ---------------------------------------------------------------------------
+_transcript_buffers: dict[str, list[dict]] = {}
+_transcript_lock = threading.Lock()
+
+_CLOSURE_REPLY = (
+    "Sama-sama, semoga informasi ini membantu! "
+    "Jika ada pertanyaan lain di lain waktu, jangan ragu menghubungi kami kembali."
+)
+
+
+def _append_turn(session_id: str, role: str, text: str) -> None:
+    """Append one turn to the session transcript buffer (thread-safe)."""
+    turn = {
+        "role": role,
+        "text": text,
+        "at": datetime.now(timezone.utc).isoformat(),
+    }
+    with _transcript_lock:
+        if session_id not in _transcript_buffers:
+            _transcript_buffers[session_id] = []
+        _transcript_buffers[session_id].append(turn)
+
+
+def _get_and_clear_buffer(session_id: str) -> list[dict]:
+    """Return current buffer for session_id and clear it (thread-safe)."""
+    with _transcript_lock:
+        turns = list(_transcript_buffers.pop(session_id, []))
+    return turns
 
 session_service = InMemorySessionService()
 runner = Runner(
@@ -461,6 +499,9 @@ async def webhook(request: Request):
     # ---------------------------------------------------------------------------
     logger.info("Webhook: running agent for session=%s text=%r", session_id, user_text[:80])
 
+    # Append user message to transcript buffer
+    _append_turn(session_id, "user", user_text)
+
     # Get or create session
     session = await session_service.get_session(
         app_name="kjri_dubai_telegram",
@@ -507,6 +548,8 @@ async def webhook(request: Request):
 
     if response_text:
         await send_message(chat_id, response_text)
+        # Append assistant turn to transcript buffer
+        _append_turn(session_id, "assistant", response_text)
     else:
         logger.warning(
             "Webhook: agent produced no text response for session=%s text=%r — "
