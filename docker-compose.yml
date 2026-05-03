@@ -119,10 +119,19 @@ services:
       LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
       LLM_MODEL: ${LLM_MODEL:-qwen2.5:0.5b}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-rag_kjri}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      KJRI_STAFF_TELEGRAM_GROUP_ID: ${KJRI_STAFF_TELEGRAM_GROUP_ID:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
-      - toolbox
+      postgres:
+        condition: service_healthy
+      toolbox:
+        condition: service_started
 
   ngrok:
     image: ngrok/ngrok:latest
