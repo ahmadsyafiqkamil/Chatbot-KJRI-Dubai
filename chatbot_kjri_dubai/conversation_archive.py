@@ -43,3 +43,67 @@ def detect_gratitude_closure(text: str) -> Optional[str]:
     if _CONTINUATION_SIGNALS.search(text):
         return None
     return "gratitude"
+
+
+# ---------------------------------------------------------------------------
+# Database helpers
+# ---------------------------------------------------------------------------
+
+def _get_conn_string() -> str:
+    db_url = os.environ.get("DATABASE_URL")
+    if db_url:
+        return db_url
+    user = os.environ.get("POSTGRES_USER", "postgres")
+    password = os.environ.get("POSTGRES_PASSWORD", "postgres")
+    host = os.environ.get("POSTGRES_HOST", "localhost")
+    port = os.environ.get("POSTGRES_PORT", "5432")
+    db = os.environ.get("POSTGRES_DB", "rag_kjri")
+    return f"postgresql://{user}:{password}@{host}:{port}/{db}"
+
+
+def save_conversation_archive(
+    session_id: str,
+    channel: str,
+    on: str,
+    transcript_messages: list[dict],
+    pengguna_id: Optional[str] = None,
+) -> Optional[str]:
+    """Insert a conversation archive row. Returns archive UUID or None on error.
+
+    transcript_messages: list of {"role": str, "text": str, "at": str (ISO 8601)}
+    on: closure reason code (e.g. "gratitude")
+    Error handling: logs exception and returns None — never raises, so UX is not broken.
+    """
+    transcript = json.dumps(
+        {
+            "schema_version": "1",
+            "closure_reason": on,
+            "messages": transcript_messages,
+        },
+        ensure_ascii=False,
+    )
+    conn_string = _get_conn_string()
+    try:
+        with psycopg2.connect(conn_string) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO conversation_archives
+                        (session_id, channel, "on", transcript, pengguna_id)
+                    VALUES (%s, %s, %s, %s::jsonb, %s)
+                    RETURNING id
+                    """,
+                    (session_id, channel, on, transcript, pengguna_id),
+                )
+                archive_id = str(cur.fetchone()[0])
+            conn.commit()
+        logger.info(
+            "Conversation archive saved: id=%s session=%s on=%s messages=%d",
+            archive_id, session_id, on, len(transcript_messages),
+        )
+        return archive_id
+    except Exception:
+        logger.exception(
+            "Failed to save conversation archive for session=%s", session_id
+        )
+        return None
