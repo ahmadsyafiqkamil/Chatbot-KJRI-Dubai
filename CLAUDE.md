@@ -6,8 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 KJRI Dubai Chatbot: A Bahasa Indonesia consular services advisor for Indonesian citizens, built with Google ADK (Agent Development Kit). The chatbot directs users to the correct consular service based on their needs, provides requirements and costs, and logs interactions for analytics.
 
-**Current Branch**: `sebelum-fase-1` (before Phase 1 implementation)
-**Key Design**: Service Navigator (approved 2026-04-21) — two-stage triage system that routes users to correct services before tool lookup.
+**Current Branch**: `sebelum-fase-1`
+**Key Design**: Service Navigator (approved 2026-04-21) — multi-agent pipeline: identity → router → triage → lookup/format.
+**Human Handoff**: Escalation to KJRI staff via Telegram group (`handoff_queue` table + `handoff.py`).
 
 ## Development Commands
 
@@ -96,15 +97,19 @@ ChromaDB (port 8001)
 
 ### Agent Architecture
 
-**File**: `chatbot_kjri_dubai/agent.py`
+**Multi-agent pipeline** via Google ADK (`chatbot_kjri_dubai/agents/`):
 
-The agent is a Google ADK `Agent` with:
-1. **LLM Model**: Flexible backend via LiteLLM (Ollama or Gemini)
-2. **Monkey-patch**: Workaround for toolbox-adk 0.5.8 FunctionDeclaration generation
-3. **ToolboxToolset**: Loads SQL-backed tools from MCP Toolbox
-4. **Instruction Prompt**: 4-stage conversation flow (see below)
+| Agent | File | Role |
+|-------|------|------|
+| `identity_agent` | `agents/identity_agent.py` | TAHAP 1 & 2 — collect & store user identity |
+| `router_agent` | `agents/router_agent.py` | Step 0 — keyword domain detection (paspor/sipil/legalisasi/darurat) |
+| `triage_agent` | `agents/triage_agent.py` | Step 1 — up to 4 targeted triage questions per domain |
+| `lookup_formatter_agent` | `agents/lookup_formatter_agent.py` | Step 2 — search tools, format output, log interaction |
+| Shared config | `agents/shared.py` | LLM model, toolbox instances, channel constant |
 
-**Imported Tools**:
+**Legacy entrypoint**: `chatbot_kjri_dubai/agent.py` — still present as ADK root agent.
+
+**Tools used by agents**:
 - `cari-layanan` — keyword search (SQL FTS)
 - `cari-layanan-semantik` — semantic search via pgvector + Gemini embeddings
 - `get-detail-layanan` — fetch full service details (JSON structure)
@@ -112,28 +117,27 @@ The agent is a Google ADK `Agent` with:
 - `simpan-interaksi` — log interaction for analytics
 - `get-statistik-penggunaan` — admin query tool
 
-### Conversation Flow (Stages)
+### Conversation Flow
 
-**TAHAP 1 — Identity Collection** (mandatory at session start)
-- Agent requests minimal identity (name), offers optional fields
-- Parses flexible input (all at once or piecemeal)
-- Confirms when name is captured
+1. **identity_agent** — greets user, collects name (+ optional: paspor, IC, phone, email), calls `simpan-identitas`, stores `pengguna_id`
+2. **router_agent** — detects domain from user message keywords; if ambiguous asks 1 A/B/C/D choice question
+3. **triage_agent** — asks ≤4 domain-specific questions to pin down exact service
+4. **lookup_formatter_agent** — calls search tools → `get-detail-layanan` → formats per Output Contract → calls `simpan-interaksi`
 
-**TAHAP 2 — Identity Storage**
-- Calls `simpan-identitas` with name + optional data (JSON)
-- Stores in `pengguna` table, gets back UUID `id`
-- Confirms to user, asks what service they need
+### Human Agent Handoff
 
-**TAHAP 3 — Service Search** (Tool Strategy)
-1. Try `cari-layanan` if user mentions service keyword (paspor, nikah, dll)
-2. Fall back to `cari-layanan-semantik` if no results or user describes situation
-3. Call `get-detail-layanan` to fetch full details
-4. Format response with structured template (see Design)
+**File**: `chatbot_kjri_dubai/handoff.py`
 
-**TAHAP 4 — Interaction Logging**
-- Calls `simpan-interaksi` with session/user/service/messages/tools
-- Logs to `chat_sessions` table for analytics
-- Silent failure (error ignored, conversation continues)
+Escalation triggers (keyword detection + crisis keywords) route the user to KJRI staff:
+- Detects: `agen`, `petugas`, `tidak membantu`, `disiksa`, `paspor ditahan`, etc.
+- Saves to `handoff_queue` (PostgreSQL) with status: `pending` → `in_progress` → `resolved`
+- Notifies KJRI staff Telegram group with `/reply <session_id> <pesan>` instructions
+- Auto-resolves inactive handoffs after 10 minutes (configurable)
+- Bot-failure handoff: if ADK returns empty reply N times, triggers handoff (cooldown: 300s default)
+
+**Env vars for handoff**:
+- `KJRI_STAFF_TELEGRAM_GROUP_ID` — Telegram group ID for staff notifications
+- `HANDOFF_BOT_FAILURE_COOLDOWN_SEC` — cooldown between bot-failure tickets (default: 300)
 
 ## Service Navigator Design
 
@@ -201,7 +205,7 @@ Markdown sections (order required):
 
 ### Core Tables
 
-**`pengguna`** (user identity, `chatbot_kjri_dubai.rag.document_manager`)
+**`pengguna`** (user identity)
 - Columns: `id` (UUID PK), `session_id`, `nama_lengkap` (required), `nomor_paspor`, `nomor_ic`, `nomor_telepon`, `email`, `alamat_domisili`, `kota_domisili`, `jenis_identitas_lain`, `nomor_identitas_lain`, `created_at`
 - Indexes: `session_id`, `nomor_paspor`, `nama_lengkap`
 - Used by: `simpan-identitas` (INSERT), agent prompt (FK reference)
@@ -211,13 +215,36 @@ Markdown sections (order required):
 - Indexes: `session_id`, `created_at`, `layanan_diminta`, `pengguna_id`
 - Used by: `simpan-interaksi` (INSERT), analytics queries
 
+**`handoff_queue`** (human agent escalation)
+- Columns: `id` (UUID PK), `session_id`, `pengguna_id` (FK → pengguna), `user_chat_id` (BIGINT), `nama_user`, `pertanyaan_terakhir`, `layanan_dicari`, `status` (pending/in_progress/resolved), `created_at`, `updated_at`, `last_activity_at`
+- Indexes: `session_id`, `status`, `last_activity_at` (partial: active only)
+- Used by: `handoff.py` (INSERT/UPDATE), Telegram bot `/reply` command
+
+**`conversation_archives`** (conversation closure transcripts)
+- Columns: `id` (UUID PK), `session_id` (TEXT), `channel` (TEXT, e.g. "telegram"), `"on"` (TEXT, closure reason code e.g. "gratitude"), `transcript` (JSONB: `{schema_version, closure_reason, messages[{role, text, at}]}`), `pengguna_id` (UUID NULL FK → pengguna), `created_at` TIMESTAMPTZ
+- Indexes: `session_id`, `created_at`
+- Used by: `conversation_archive.py` (INSERT on closure detection in Telegram webhook)
+- Note: `"on"` is a PostgreSQL reserved word — must be double-quoted in all SQL statements
+
 ### Migrations
 
 Located in `migrations/`:
 - `001_chat_sessions.sql` — create `chat_sessions` table
 - `002_pengguna.sql` — create `pengguna` table
-- Mounted as Docker init scripts (`02_`, `03_`); auto-run on fresh database
-- For existing databases, apply manually: `docker exec -i kjri_postgres psql -U postgres -d rag_kjri < migrations/001_chat_sessions.sql`
+- `003_rag_phase0.sql` — RAG phase 0: `documents`, `document_chunks`, `chat_history`, `retrieval_analytics`
+- `004_documents_phase1.sql` — Phase 1 document schema refinements
+- `005_retrieval_fts.sql` — Full-text search: `search_vector` generated column + GIN index on `document_chunks`
+- `006_handoff_queue.sql` — Human handoff: `handoff_queue` table (status: pending/in_progress/resolved)
+- `007_handoff_last_activity.sql` — Add `last_activity_at` column to `handoff_queue` (inactivity timeout)
+- `008_conversation_archives.sql` — Conversation closure archives: `conversation_archives` table (`session_id`, `channel`, `"on"` closure reason code, `transcript` JSONB, `pengguna_id` FK)
+
+Migrations 001-002 mounted as Docker init scripts (`02_`, `03_`); auto-run on fresh database.
+For existing databases, apply manually:
+```bash
+docker exec -i kjri_postgres psql -U postgres -d rag_kjri < migrations/006_handoff_queue.sql
+docker exec -i kjri_postgres psql -U postgres -d rag_kjri < migrations/007_handoff_last_activity.sql
+docker exec -i kjri_postgres psql -U postgres -d rag_kjri < migrations/008_conversation_archives.sql
+```
 
 ### Service Data
 
@@ -228,35 +255,38 @@ Located in `rag_kjri_dubai.sql` (gitignored — do not commit)
 
 ## RAG Implementation (Phases, Planned)
 
-**Current Status**: Infrastructure completed (Phase 0), no Phase 1 work started
-**Branch**: `phase1-rag` (worktree for Phase 1 development)
+**Current Status**: Phase 1 complete (2026-04-28). Phase 2 is next.
 
 ### Phase Timeline
-- **Phase 0** ✅ DONE: PostgreSQL + pgvector, ChromaDB, basic schema
-- **Phase 1** ⏳ NEXT: Document upload, PDF/TXT/MD parsing, semantic chunking
-- **Phase 2**: Multi-stage retrieval (keyword → semantic → rerank)
+- **Phase 0** ✅ DONE: PostgreSQL + pgvector, ChromaDB, basic schema (migration 003)
+- **Phase 1** ✅ DONE: Document upload, PDF/TXT/MD parsing, semantic chunking — 51 tests, 99.3% coverage
+- **Phase 2** ⏳ NEXT: Multi-stage retrieval (FTS keyword → semantic → rerank); migration 005 already adds FTS index
 - **Phase 3**: Chat history management
 - **Phase 4**: Agent integration
 - **Phase 5**: Analytics
 
-### Future Modules
+### RAG Module (Implemented)
 
-When Phase 1 begins, will add:
 ```
-chatbot_kjri_dubai/
-├── rag/
-│   ├── document_manager.py      # Upload & parse documents (PDF/TXT/MD)
-│   ├── embeddings.py            # Gemini embedding integration
-│   ├── retrieval.py             # Multi-stage retrieval pipeline
-│   ├── chromadb_client.py       # Vector store client
-│   ├── history_manager.py       # Chat context storage
-│   └── prompt_templates.py      # Structured prompt templates
+chatbot_kjri_dubai/rag/
+├── document_manager.py  # Upload & parse documents (PDF/TXT/MD); stores to PostgreSQL + ChromaDB
+├── embeddings.py        # Gemini embedding integration (gemini-embedding-001, 3072 dims)
+├── chunking.py          # SentenceSplitter (500 tokens, 100 overlap); tiktoken cl100k_base
+├── chromadb_client.py   # ChromaDB vector store client
+├── parsers.py           # PDF/TXT/MD file parsers
+├── retrieval.py         # Multi-stage retrieval pipeline (Phase 2)
+└── __init__.py
 ```
 
-### Future Database Tables
+**Schema notes** (actual DB columns differ from some migration comments):
+- `documents`: `source` (not `file_type`), `original_filename`, `content_text` — no `status` column
+- `document_chunks`: `chunk_number` (not `chunk_index`), `chunk_text` (not `content`), `chunk_tokens`
+- `source` CHECK constraint values: `'pdf'`, `'markdown'`, `'txt'`
+
+### RAG Database Tables
 
 - **`documents`**: uploaded file metadata (title, source, file_size, tags, version)
-- **`document_chunks`**: semantic chunks with token counts, char positions
+- **`document_chunks`**: semantic chunks with token counts, char positions, `search_vector` (FTS)
 - **`chat_history`**: enhanced session tracking with embedding refs
 - **`retrieval_analytics`**: retrieval quality metrics (score, user satisfaction, timing)
 
@@ -321,15 +351,21 @@ All tools return structured JSON; agent parses and formats for user.
 - `LLM_MODEL` — model name (default: `qwen2.5:0.5b`)
 - `AGENT_PORT` — Agent API port (default: 8000)
 - `TELEGRAM_BOT_PORT` — Telegram service port (default: 8080)
+- `KJRI_STAFF_TELEGRAM_GROUP_ID` — Telegram group ID for handoff staff notifications
+- `HANDOFF_BOT_FAILURE_COOLDOWN_SEC` — cooldown between bot-failure handoff tickets (default: 300)
 
 ## Code Organization
 
-- **`chatbot_kjri_dubai/agent.py`** — Main agent logic (identity → search → logging flow)
+- **`chatbot_kjri_dubai/agent.py`** — ADK root agent entrypoint
+- **`chatbot_kjri_dubai/agents/`** — Multi-agent pipeline (identity, router, triage, lookup_formatter, shared)
+- **`chatbot_kjri_dubai/handoff.py`** — Human agent handoff (escalation detection, DB, Telegram notify)
+- **`chatbot_kjri_dubai/conversation_archive.py`** — Gratitude/farewell closure detection (`detect_gratitude_closure`) + transcript archive DB insert (`save_conversation_archive`)
+- **`chatbot_kjri_dubai/rag/`** — RAG module (document_manager, embeddings, chunking, parsers, chromadb_client, retrieval)
 - **`chatbot_kjri_dubai/telegram_bot.py`** — Telegram Bot API handler
 - **`chatbot_kjri_dubai/markdown_converter.py`** — Markdown ↔ Telegram format conversion
 - **`toolbox/config/tools.yaml`** — Tool definitions (SQL queries, descriptions)
-- **`migrations/`** — Database schema migrations
-- **`scripts/seed_embeddings.py`** — Future: bulk embedding generator (not in use yet)
+- **`migrations/`** — Database schema migrations (001–007)
+- **`scripts/seed_embeddings.py`** — Bulk embedding generator (not in use yet)
 - **`ollama/`** — Ollama Docker entrypoint (optional local LLM)
 
 ## Development Notes
@@ -340,29 +376,20 @@ All tools return structured JSON; agent parses and formats for user.
 - **`sebelum-fase-1`** (current) — pre-Phase 1, preparing Service Navigator implementation
 - **`phase1-rag`** — Phase 1 RAG development (worktree)
 
-### When Implementing Service Navigator
+### Service Navigator (Implemented)
 
-1. **Update agent prompt** in `chatbot_kjri_dubai/agent.py:instruction`:
-   - Add Step 0 keyword routing logic
-   - Add Step 1 triage question-set per domain
-   - Reference seed keyword mapping (above)
-   - Preserve TAHAP 2–4 (existing flow)
+Multi-agent pipeline is in place (`agents/`). To iterate:
+1. **Keyword mapping**: Edit `router_agent.py` keyword lists to add/refine domain routing
+2. **Triage questions**: Edit `triage_agent.py` per-domain question sets (max 4 per domain)
+3. **Test with golden set**: 20 queries covering all domains — target ≥80% accuracy (16/20)
+4. **Token budget**: Triage adds turns; use Gemini if Ollama small model struggles
 
-2. **Test with golden set**: 20 test queries covering all domains
-   - Expected outcome: router picks correct domain + triage questions converge to 1 service
-   - Measure: 16/20 correct (≥80% accuracy)
+### When Implementing Phase 2 (Multi-stage Retrieval)
 
-3. **Monitor token usage**: Triage questions may increase turns
-   - Token budget: Ollama small model (7B) vs. Gemini
-   - Fallback: reduce max triage questions or use Gemini for Step 1 only
-
-### When Implementing Phase 1 (RAG)
-
-1. Create `chatbot_kjri_dubai/rag/` module
-2. Add migrations for `documents`, `document_chunks` tables
-3. Implement `DocumentManager` (PDF/TXT/MD parsing + chunking)
-4. Wire into agent as optional step before service search
-5. Run tests: document upload → chunking → retrieval
+1. Implement retrieval pipeline in `chatbot_kjri_dubai/rag/retrieval.py` (scaffold exists)
+2. Strategy: PostgreSQL FTS (`search_vector` column, migration 005) → ChromaDB semantic → rerank
+3. Wire into `lookup_formatter_agent` as step before `cari-layanan-semantik`
+4. Add `retrieval_analytics` logging for quality metrics
 
 ## Debugging Tips
 
