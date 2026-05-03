@@ -12,11 +12,27 @@ from google.genai import types
 
 from chatbot_kjri_dubai.agent import root_agent
 from chatbot_kjri_dubai.markdown_converter import md_to_html
+from chatbot_kjri_dubai.handoff import (
+    check_and_resolve_timed_out_handoffs,
+    detect_escalation_trigger,
+    forward_user_message_to_staff,
+    get_user_chat_id_by_session,
+    handle_staff_reply,
+    has_active_handoff,
+    is_from_staff_group,
+    resolve_handoff_by_session,
+    save_handoff_to_db,
+    send_staff_notification,
+    set_handoff_in_progress_by_session,
+    update_handoff_activity,
+    USER_CONFIRMATION_MSG,
+)
 
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 WEBHOOK_BASE_URL = os.environ.get("WEBHOOK_BASE_URL", "")
 TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 NGROK_API = os.environ.get("NGROK_API", "http://ngrok:4040")
+KJRI_STAFF_GROUP_ID = os.environ.get("KJRI_STAFF_TELEGRAM_GROUP_ID", "")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -73,6 +89,21 @@ async def get_ngrok_url() -> str | None:
     return None
 
 
+async def _handoff_timeout_loop() -> None:
+    """Background task: check and resolve timed-out handoff sessions every 60 seconds."""
+    while True:
+        await asyncio.sleep(60)
+        try:
+            resolved = await check_and_resolve_timed_out_handoffs(
+                bot_token=TELEGRAM_BOT_TOKEN,
+                staff_group_id=KJRI_STAFF_GROUP_ID,
+            )
+            if resolved:
+                logger.info("Auto-resolved %d timed-out handoff(s)", resolved)
+        except Exception:
+            logger.exception("Error in handoff timeout loop")
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     # Set webhook on startup
@@ -91,7 +122,16 @@ async def lifespan(_app: FastAPI):
         logger.warning(
             "No webhook URL available. Set WEBHOOK_BASE_URL env var or ensure ngrok is running."
         )
-    yield
+
+    timeout_task = asyncio.create_task(_handoff_timeout_loop())
+    try:
+        yield
+    finally:
+        timeout_task.cancel()
+        try:
+            await timeout_task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(lifespan=lifespan)
@@ -114,9 +154,109 @@ async def webhook(request: Request):
     user_id = str(chat_id)
     session_id = f"telegram_{chat_id}"
 
+    # ---------------------------------------------------------------------------
+    # Staff commands — only accepted from KJRI_STAFF_GROUP_ID
+    # ---------------------------------------------------------------------------
+    if user_text.startswith("/reply ") or user_text.startswith("/resolve "):
+        if not is_from_staff_group(str(chat_id), KJRI_STAFF_GROUP_ID):
+            return {"ok": True}
+
+        if user_text.startswith("/reply "):
+            parts = user_text[len("/reply "):].split(" ", 1)
+            if len(parts) < 2:
+                await send_message(chat_id, "Format: /reply &lt;session_id&gt; &lt;pesan&gt;")
+                return {"ok": True}
+            target_session_id, pesan_staf = parts[0], parts[1]
+            target_chat_id = get_user_chat_id_by_session(target_session_id)
+            if target_chat_id is None:
+                await send_message(chat_id, f"Session <code>{target_session_id}</code> tidak ditemukan.")
+                return {"ok": True}
+            set_handoff_in_progress_by_session(target_session_id)
+            try:
+                await handle_staff_reply(
+                    bot_token=TELEGRAM_BOT_TOKEN,
+                    user_chat_id=target_chat_id,
+                    pesan_staf=pesan_staf,
+                )
+            except Exception:
+                logger.exception("Failed to forward staff reply for session=%s", target_session_id)
+
+        elif user_text.startswith("/resolve "):
+            target_session_id = user_text[len("/resolve "):].strip()
+            target_chat_id = get_user_chat_id_by_session(target_session_id)
+            resolved = resolve_handoff_by_session(target_session_id)
+            if resolved:
+                if target_chat_id:
+                    try:
+                        await handle_staff_reply(
+                            bot_token=TELEGRAM_BOT_TOKEN,
+                            user_chat_id=target_chat_id,
+                            pesan_staf="Sesi Anda dengan petugas KJRI telah selesai. Anda dapat melanjutkan percakapan dengan bot kami.",
+                        )
+                    except Exception:
+                        logger.exception("Failed to notify user on resolve for session=%s", target_session_id)
+                await send_message(chat_id, f"Sesi <code>{target_session_id}</code> berhasil di-resolve. Bot aktif kembali untuk user.")
+            else:
+                await send_message(chat_id, f"Tidak ada handoff aktif untuk sesi <code>{target_session_id}</code>.")
+
+        return {"ok": True}
+
+    # ---------------------------------------------------------------------------
     # Handle /start command
+    # ---------------------------------------------------------------------------
     if user_text.strip() == "/start":
         user_text = "Halo"
+
+    # ---------------------------------------------------------------------------
+    # Guard: session already in handoff queue — forward ke staf, bot diam
+    # ---------------------------------------------------------------------------
+    if has_active_handoff(session_id):
+        update_handoff_activity(session_id)
+        if KJRI_STAFF_GROUP_ID:
+            try:
+                await forward_user_message_to_staff(
+                    bot_token=TELEGRAM_BOT_TOKEN,
+                    staff_group_id=KJRI_STAFF_GROUP_ID,
+                    session_id=session_id,
+                    nama_user=str(chat_id),
+                    pesan_user=user_text,
+                )
+            except Exception:
+                logger.exception("Failed to forward user message to staff for session=%s", session_id)
+        return {"ok": True}
+
+    # ---------------------------------------------------------------------------
+    # Escalation trigger detection — intercept before agent
+    # ---------------------------------------------------------------------------
+    if detect_escalation_trigger(user_text):
+        try:
+            handoff_id = save_handoff_to_db(
+                session_id=session_id,
+                user_chat_id=chat_id,
+                pengguna_id=None,
+                nama_user=None,
+                pertanyaan_terakhir=user_text,
+                layanan_dicari=None,
+            )
+            if KJRI_STAFF_GROUP_ID:
+                await send_staff_notification(
+                    bot_token=TELEGRAM_BOT_TOKEN,
+                    staff_group_id=KJRI_STAFF_GROUP_ID,
+                    handoff_id=handoff_id,
+                    session_id=session_id,
+                    nama_user=str(chat_id),
+                    pertanyaan_terakhir=user_text,
+                )
+            else:
+                logger.warning("KJRI_STAFF_TELEGRAM_GROUP_ID not set; skipping staff notification")
+        except Exception:
+            logger.exception("Handoff save/notify failed for chat_id=%s", chat_id)
+        await send_message(chat_id, USER_CONFIRMATION_MSG)
+        return {"ok": True}
+
+    # ---------------------------------------------------------------------------
+    # Normal agent flow (TAHAP 1–4 unchanged)
+    # ---------------------------------------------------------------------------
 
     # Get or create session
     session = await session_service.get_session(
