@@ -166,6 +166,33 @@ def get_user_chat_id_by_session(session_id: str) -> Optional[int]:
     return int(row[0]) if row else None
 
 
+def get_latest_pengguna_for_session(session_id: str) -> tuple[Optional[str], Optional[str]]:
+    """Return (pengguna_id, nama_lengkap) for the latest pengguna row with this session_id.
+
+    Returns (None, None) if not found or on DB error.
+    """
+    conn_string = _get_conn_string()
+    try:
+        with psycopg2.connect(conn_string) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, nama_lengkap FROM pengguna
+                    WHERE session_id = %s
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """,
+                    (session_id,),
+                )
+                row = cur.fetchone()
+        if row:
+            return (str(row[0]), row[1])
+        return (None, None)
+    except Exception:
+        logger.exception("Error fetching pengguna for session=%s", session_id)
+        return (None, None)
+
+
 def has_active_handoff(session_id: str) -> bool:
     """Return True if session has a pending or in_progress handoff."""
     conn_string = _get_conn_string()

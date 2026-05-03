@@ -17,6 +17,7 @@ from chatbot_kjri_dubai.handoff import (
     check_and_resolve_timed_out_handoffs,
     detect_escalation_trigger,
     forward_user_message_to_staff,
+    get_latest_pengguna_for_session,
     get_user_chat_id_by_session,
     handle_staff_reply,
     has_active_handoff,
@@ -38,6 +39,16 @@ KJRI_STAFF_GROUP_ID = os.environ.get("KJRI_STAFF_TELEGRAM_GROUP_ID", "")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Jika final response dari ADK hanya whitespace (sering setelah tool calls pada model kecil),
+# satu kali kirim pesan tambahan agar model menulis jawaban Markdown lengkap sebelum handoff.
+_AGENT_EMPTY_REPLY_NUDGE = (
+    "[Instruksi sistem untuk asisten KJRI] Respons teks kepada user pada giliran terakhir kosong "
+    "atau hanya whitespace. WAJIB kirim sekarang jawaban lengkap dalam Bahasa Indonesia (Markdown): "
+    "## Konteks singkat, ## Ringkasan layanan, ## Persyaratan, ## Biaya (AED), ## Langkah berikutnya. "
+    "Pakai data dari tool di percakapan ini; jika belum ada data valid, panggil cari-layanan / "
+    "get-detail-layanan sesuai kebutuhan lalu tulis jawaban untuk user."
+)
+
 # Mask token in logs — show only first 10 chars so logs are safe to share.
 _token_prefix = (TELEGRAM_BOT_TOKEN[:10] + "***") if len(TELEGRAM_BOT_TOKEN) > 10 else "***"
 logger.info("Telegram bot initialising. Token prefix: %s", _token_prefix)
@@ -48,6 +59,65 @@ runner = Runner(
     app_name="kjri_dubai_telegram",
     session_service=session_service,
 )
+
+
+async def _run_agent_collect_visible_text(
+    *,
+    user_id: str,
+    adk_session_id: str,
+    user_message: str,
+    log_session_label: str,
+) -> str:
+    """Jalankan runner satu putaran; kumpulkan teks dari final response (abaikan part kosong/spasi saja)."""
+    content = types.Content(parts=[types.Part(text=user_message)], role="user")
+    response_parts: list[str] = []
+    async for event in runner.run_async(
+        user_id=user_id,
+        session_id=adk_session_id,
+        new_message=content,
+    ):
+        author = getattr(event, "author", "?")
+        is_final = event.is_final_response()
+        logger.debug(
+            "Webhook: event author=%s is_final=%s has_content=%s",
+            author,
+            is_final,
+            bool(event.content),
+        )
+        if not is_final:
+            continue
+        if not event.content or not event.content.parts:
+            logger.warning(
+                "Webhook: final_response has no content/parts — "
+                "author=%s session=%s",
+                author,
+                log_session_label,
+            )
+            continue
+        for part in event.content.parts:
+            if hasattr(part, "text") and part.text and part.text.strip():
+                logger.info(
+                    "Webhook: final response part from author=%s text=%r",
+                    author,
+                    part.text[:100],
+                )
+                response_parts.append(part.text.strip())
+            elif hasattr(part, "text") and part.text:
+                logger.debug(
+                    "Webhook: skipping whitespace-only text part author=%s session=%s",
+                    author,
+                    log_session_label,
+                )
+            else:
+                part_type = type(part).__name__
+                logger.warning(
+                    "Webhook: final_response part has no text — "
+                    "author=%s part_type=%s session=%s",
+                    author,
+                    part_type,
+                    log_session_label,
+                )
+    return "\n".join(response_parts).strip()
 
 
 async def send_message(chat_id: int, text: str) -> None:
@@ -69,6 +139,33 @@ async def send_message(chat_id: int, text: str) -> None:
                         json={"chat_id": chat_id, "text": plain_chunk},
                     )
                 return
+
+
+def _staff_display_name_and_pengguna(
+    session_id: str,
+    message: dict,
+) -> tuple:
+    """Return (pengguna_id, display_name) for staff notifications.
+
+    Priority:
+    1. nama_lengkap from pengguna table (keyed by session_id)
+    2. first_name + last_name from Telegram message['from']
+    3. str(chat_id)
+    """
+    pengguna_id, nama_lengkap = get_latest_pengguna_for_session(session_id)
+    if nama_lengkap:
+        return (pengguna_id, nama_lengkap)
+
+    from_data = message.get("from", {})
+    parts = []
+    if from_data.get("first_name"):
+        parts.append(from_data["first_name"])
+    if from_data.get("last_name"):
+        parts.append(from_data["last_name"])
+    if parts:
+        return (None, " ".join(parts))
+
+    return (None, str(message["chat"]["id"]))
 
 
 async def set_webhook(url: str) -> None:
@@ -151,6 +248,7 @@ async def _trigger_bot_failure_handoff(
     chat_id: int,
     session_id: str,
     user_text: str,
+    message: dict,
 ) -> None:
     """Escalate to human staff when the bot fails to produce a response.
 
@@ -179,12 +277,14 @@ async def _trigger_bot_failure_handoff(
         )
         return
 
+    pengguna_id, display_name = _staff_display_name_and_pengguna(session_id, message)
+
     try:
         handoff_id = save_handoff_to_db(
             session_id=session_id,
             user_chat_id=chat_id,
-            pengguna_id=None,
-            nama_user=None,
+            pengguna_id=pengguna_id,
+            nama_user=display_name,
             pertanyaan_terakhir=user_text,
             layanan_dicari=None,
         )
@@ -197,7 +297,7 @@ async def _trigger_bot_failure_handoff(
                 staff_group_id=KJRI_STAFF_GROUP_ID,
                 handoff_id=handoff_id,
                 session_id=session_id,
-                nama_user=str(chat_id),
+                nama_user=display_name,
                 pertanyaan_terakhir=f"[BOT FAILURE] {user_text}",
             )
         else:
@@ -309,12 +409,13 @@ async def webhook(request: Request):
         update_handoff_activity(session_id)
         logger.info("Webhook: forwarding user message to staff for session=%s", session_id)
         if KJRI_STAFF_GROUP_ID:
+            _, display_name = _staff_display_name_and_pengguna(session_id, message)
             try:
                 await forward_user_message_to_staff(
                     bot_token=TELEGRAM_BOT_TOKEN,
                     staff_group_id=KJRI_STAFF_GROUP_ID,
                     session_id=session_id,
-                    nama_user=str(chat_id),
+                    nama_user=display_name,
                     pesan_user=user_text,
                 )
             except Exception:
@@ -328,12 +429,13 @@ async def webhook(request: Request):
     logger.info("Webhook: detect_escalation_trigger = %s for session=%s", escalation, session_id)
 
     if escalation:
+        pengguna_id, display_name = _staff_display_name_and_pengguna(session_id, message)
         try:
             handoff_id = save_handoff_to_db(
                 session_id=session_id,
                 user_chat_id=chat_id,
-                pengguna_id=None,
-                nama_user=None,
+                pengguna_id=pengguna_id,
+                nama_user=display_name,
                 pertanyaan_terakhir=user_text,
                 layanan_dicari=None,
             )
@@ -344,7 +446,7 @@ async def webhook(request: Request):
                     staff_group_id=KJRI_STAFF_GROUP_ID,
                     handoff_id=handoff_id,
                     session_id=session_id,
-                    nama_user=str(chat_id),
+                    nama_user=display_name,
                     pertanyaan_terakhir=user_text,
                 )
             else:
@@ -375,53 +477,29 @@ async def webhook(request: Request):
     else:
         logger.info("Webhook: existing session found for session_id=%s", session_id)
 
-    # Run agent and collect final response
-    content = types.Content(parts=[types.Part(text=user_text)], role="user")
-    response_parts: list[str] = []
-
     try:
-        async for event in runner.run_async(
+        response_text = await _run_agent_collect_visible_text(
             user_id=user_id,
-            session_id=session.id,
-            new_message=content,
-        ):
-            author = getattr(event, "author", "?")
-            is_final = event.is_final_response()
-            logger.debug(
-                "Webhook: event author=%s is_final=%s has_content=%s",
-                author,
-                is_final,
-                bool(event.content),
+            adk_session_id=session.id,
+            user_message=user_text,
+            log_session_label=session_id,
+        )
+        if not response_text:
+            logger.warning(
+                "Webhook: empty visible response after first agent pass session=%s — retry with nudge",
+                session_id,
             )
-            if is_final:
-                if not event.content or not event.content.parts:
-                    logger.warning(
-                        "Webhook: final_response has no content/parts — "
-                        "author=%s session=%s",
-                        author, session_id,
-                    )
-                else:
-                    for part in event.content.parts:
-                        if hasattr(part, "text") and part.text:
-                            logger.info(
-                                "Webhook: final response part from author=%s text=%r",
-                                author,
-                                part.text[:100],
-                            )
-                            response_parts.append(part.text)
-                        else:
-                            part_type = type(part).__name__
-                            logger.warning(
-                                "Webhook: final_response part has no text — "
-                                "author=%s part_type=%s session=%s",
-                                author, part_type, session_id,
-                            )
+            response_text = await _run_agent_collect_visible_text(
+                user_id=user_id,
+                adk_session_id=session.id,
+                user_message=_AGENT_EMPTY_REPLY_NUDGE,
+                log_session_label=session_id,
+            )
     except Exception:
         logger.exception("Error running agent for chat_id=%s session=%s", chat_id, session_id)
-        await _trigger_bot_failure_handoff(chat_id, session_id, user_text)
+        await _trigger_bot_failure_handoff(chat_id, session_id, user_text, message)
         return {"ok": True}
 
-    response_text = "\n".join(response_parts).strip()
     logger.info(
         "Webhook: agent done for session=%s, response_text length=%d",
         session_id, len(response_text),
@@ -435,7 +513,7 @@ async def webhook(request: Request):
             "triggering bot-failure handoff",
             session_id, user_text[:80],
         )
-        await _trigger_bot_failure_handoff(chat_id, session_id, user_text)
+        await _trigger_bot_failure_handoff(chat_id, session_id, user_text, message)
 
     return {"ok": True}
 

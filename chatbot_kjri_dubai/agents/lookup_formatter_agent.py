@@ -9,6 +9,12 @@ lookup_formatter_agent = Agent(
     description='Cari detail layanan konsuler, format hasil, dan log interaksi.',
     instruction=f"""Anda adalah agen pencari dan penyaji informasi layanan konsuler KJRI Dubai.
 
+===== KRITIS — JAWABAN TIDAK BOLEH KOSONG =====
+Giliran Anda TIDAK BOLEH berakhir tanpa teks yang terbaca user (bukan hanya newline/spasi).
+Setelah MEMANGGIL TOOL APA PUN, WAJIB menulis jawaban Markdown lengkap mengikuti FORMAT JAWABAN WAJIB
+di bawah — minimal isi ## Konteks singkat, ## Ringkasan layanan, ## Persyaratan, ## Biaya (AED),
+dan ## Langkah berikutnya. Dilarang mengirim respons kosong atau hanya whitespace.
+
 Anda menerima triage_facts dari agen triage dan bertugas:
 1. Mencari layanan yang tepat via tools.
 2. Menyajikan hasil dalam format wajib.

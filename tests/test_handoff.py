@@ -857,6 +857,77 @@ class TestCrisisKeywords:
 
 
 # ---------------------------------------------------------------------------
+# get_latest_pengguna_for_session
+# ---------------------------------------------------------------------------
+
+FAKE_PENGGUNA_ID = str(uuid.uuid4())
+FAKE_NAMA_LENGKAP = "Budi Santoso"
+
+
+def _make_mock_db_pengguna(pengguna_id=FAKE_PENGGUNA_ID, nama_lengkap=FAKE_NAMA_LENGKAP):
+    """Build a single-fetchone mock for pengguna lookups."""
+    mock_cursor = MagicMock()
+    mock_cursor.fetchone.return_value = (pengguna_id, nama_lengkap)
+    mock_conn = MagicMock()
+    mock_conn.cursor.return_value.__enter__ = lambda s: mock_cursor
+    mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+    mock_connect = MagicMock()
+    mock_connect.return_value.__enter__ = lambda s: mock_conn
+    mock_connect.return_value.__exit__ = MagicMock(return_value=False)
+    return mock_connect, mock_conn, mock_cursor
+
+
+class TestGetLatestPenggunaForSession:
+    def test_returns_pengguna_id_and_nama_when_found(self):
+        from chatbot_kjri_dubai.handoff import get_latest_pengguna_for_session
+        mock_connect, _, _ = _make_mock_db_pengguna()
+        with patch("chatbot_kjri_dubai.handoff.psycopg2.connect", mock_connect):
+            pengguna_id, nama = get_latest_pengguna_for_session(FAKE_SESSION_ID)
+        assert pengguna_id == FAKE_PENGGUNA_ID
+        assert nama == FAKE_NAMA_LENGKAP
+
+    def test_returns_none_none_when_not_found(self):
+        from chatbot_kjri_dubai.handoff import get_latest_pengguna_for_session
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = None
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value.__enter__ = lambda s: mock_cursor
+        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+        mock_connect = MagicMock()
+        mock_connect.return_value.__enter__ = lambda s: mock_conn
+        mock_connect.return_value.__exit__ = MagicMock(return_value=False)
+        with patch("chatbot_kjri_dubai.handoff.psycopg2.connect", mock_connect):
+            pengguna_id, nama = get_latest_pengguna_for_session("unknown_session")
+        assert pengguna_id is None
+        assert nama is None
+
+    def test_returns_none_none_on_db_exception(self):
+        from chatbot_kjri_dubai.handoff import get_latest_pengguna_for_session
+        mock_connect = MagicMock(side_effect=Exception("DB down"))
+        with patch("chatbot_kjri_dubai.handoff.psycopg2.connect", mock_connect):
+            pengguna_id, nama = get_latest_pengguna_for_session(FAKE_SESSION_ID)
+        assert pengguna_id is None
+        assert nama is None
+
+    def test_queries_pengguna_table_by_session_id(self):
+        from chatbot_kjri_dubai.handoff import get_latest_pengguna_for_session
+        mock_connect, _, mock_cursor = _make_mock_db_pengguna()
+        with patch("chatbot_kjri_dubai.handoff.psycopg2.connect", mock_connect):
+            get_latest_pengguna_for_session(FAKE_SESSION_ID)
+        sql = mock_cursor.execute.call_args[0][0]
+        params = mock_cursor.execute.call_args[0][1]
+        assert "pengguna" in sql
+        assert FAKE_SESSION_ID in params
+
+    def test_pengguna_id_is_returned_as_string(self):
+        from chatbot_kjri_dubai.handoff import get_latest_pengguna_for_session
+        mock_connect, _, _ = _make_mock_db_pengguna()
+        with patch("chatbot_kjri_dubai.handoff.psycopg2.connect", mock_connect):
+            pengguna_id, _ = get_latest_pengguna_for_session(FAKE_SESSION_ID)
+        assert isinstance(pengguna_id, str)
+
+
+# ---------------------------------------------------------------------------
 # can_create_bot_failure_handoff — cooldown / dedupe logic
 # ---------------------------------------------------------------------------
 

@@ -30,6 +30,7 @@ ATURAN TRANSFER (ikuti urutan ini):
 4. TRIAGE SELESAI
    Jika triage sudah cukup untuk menentukan layanan,
    transfer ke `lookup_formatter_agent` untuk mencari detail layanan dan memformat jawaban.
+   Pastikan user menerima jawaban berisi teks Markdown lengkap dari lookup — bukan pesan kosong.
 
 5. SETELAH LOOKUP SELESAI
    Kembali ke root. Jika user bertanya layanan lain, mulai dari langkah 2.
